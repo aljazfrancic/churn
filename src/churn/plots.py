@@ -2,7 +2,8 @@
 
 Colours come from a validated, colour-blind-safe reference palette. Emphasis form: churned
 customers / churn rates are the accent blue, retained customers the de-emphasis gray, magnitudes a
-single-hue blue ramp (darker = more churn). Figures are static PNGs on an opaque light surface.
+single-hue blue ramp (darker = more churn); in model plots the selected model takes the accent.
+Figures are static PNGs on an opaque light surface.
 """
 
 import matplotlib.pyplot as plt
@@ -17,6 +18,7 @@ from matplotlib.ticker import PercentFormatter
 
 from churn.config import NUMERIC_COLUMNS, TARGET
 from churn.eda import churn_rate_by, quantile_bins
+from churn.evaluation import SIMPLEST_FIRST
 
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
@@ -33,6 +35,7 @@ BLUE_RAMP = [  # steps 100 → 700
 SEQUENTIAL = LinearSegmentedColormap.from_list("churn_blues", BLUE_RAMP)
 # Contract length is ordered → one-hue ordinal ramp (steps 650 / 450 / 250), darkest = riskiest.
 CONTRACT_COLORS = {"Month-to-month": "#104281", "One year": "#2a78d6", "Two year": "#86b6ef"}
+SELECTED_MODEL, OTHER_MODEL = CHURN, STAYED  # model plots: emphasis on the chosen model
 
 SHORT_LABELS = {
     "Bank transfer (automatic)": "Bank transfer (auto)",
@@ -350,6 +353,82 @@ def plot_association_matrix(matrix: pd.DataFrame, title: str) -> Figure:
     )
     ax.tick_params(axis="x", rotation=90)
     ax.grid(False)
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def _fold_panel(ax: Axes, folds: pd.DataFrame, highlight: str, labels: dict, title: str) -> None:
+    """Box + dots of the fold scores, one column of `folds` per model, first column on top.
+
+    Whiskers span all folds, as every fold is drawn anyway; `labels` sit right of the panel.
+    """
+    jitter = np.random.default_rng(0).uniform(-0.15, 0.15, len(folds))  # same figure every run
+    transform = ax.get_yaxis_transform()  # x in axes fraction, y in data
+    for y, name in zip(range(folds.shape[1] - 1, -1, -1), folds.columns, strict=True):
+        color = SELECTED_MODEL if name == highlight else OTHER_MODEL
+        text_color = SELECTED_MODEL if name == highlight else INK_SECONDARY
+        ax.text(
+            1.03, y, labels[name], transform=transform, va="center", fontsize=9, color=text_color
+        )
+        values = folds[name].dropna()  # empty for the reference of a difference panel
+        if values.empty:
+            continue
+        line = {"color": color, "linewidth": 1.2}
+        ax.boxplot(
+            values,
+            positions=[y],
+            orientation="horizontal",
+            widths=0.5,
+            whis=(0, 100),
+            patch_artist=True,
+            showfliers=False,
+            manage_ticks=False,
+            boxprops={**line, "facecolor": to_rgba(color, 0.12), "edgecolor": color},
+            medianprops={"color": color, "linewidth": 2},
+            whiskerprops=line,
+            capprops=line,
+        )
+        ax.scatter(values, y + jitter[: len(values)], s=14, color=color, alpha=0.7, linewidth=0)
+    ax.set_title(title)
+    ax.grid(axis="y", visible=False)
+
+
+def plot_model_comparison(scores: pd.DataFrame, selected: str, title: str) -> Figure:
+    """Fold scores per model: PR-AUC, its difference to `selected` on the same fold, Brier (D41).
+
+    Rows are sorted by mean PR-AUC, best on top. Only models the selection rule considers are
+    drawn: the baseline's PR-AUC of 0.265 would squash the axes.
+    """
+    scores = scores[scores["model"].isin(SIMPLEST_FIRST)]
+    pr_auc, brier = (
+        scores.pivot(index="fold", columns="model", values=m) for m in ["pr_auc", "brier"]
+    )
+    order = pr_auc.mean().sort_values(ascending=False).index
+    pr_auc, brier = pr_auc[order], brier[order]
+    gain = pr_auc.sub(pr_auc[selected], axis=0).drop(columns=selected).reindex(columns=order)
+    wins = (gain > 0).sum()
+    n_folds = len(gain)
+
+    fig, axes = plt.subplots(1, 3, figsize=(11, 3.8), sharey=True)
+    means = {name: f"{value:.3f}" for name, value in pr_auc.mean().items()}
+    _fold_panel(axes[0], pr_auc, selected, means, "PR-AUC (higher = better)")
+    counts = {name: f"better in {wins[name]}/{n_folds}" for name in order}
+    _fold_panel(axes[1], gain, selected, counts | {selected: "reference"}, f"PR-AUC vs {selected}")
+    axes[1].axvline(0, color=MUTED, linewidth=1, linestyle=(0, (3, 3)))
+    means = {name: f"{value:.3f}" for name, value in brier.mean().items()}
+    _fold_panel(axes[2], brier, selected, means, "Brier score (lower = better)")
+
+    axes[0].set_yticks(range(len(order) - 1, -1, -1), order)
+    axes[0].set_ylim(-0.6, len(order) - 0.4)
+    for label in axes[0].get_yticklabels():
+        if label.get_text() == selected:
+            label.set(color=SELECTED_MODEL, fontweight="bold")
+    note = (
+        f"Dots: {n_folds} folds · box: middle half, line: median · numbers: mean · "
+        f"centre: PR-AUC minus {selected} on the same fold"
+    )
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
     _suptitle(fig, title)
     fig.tight_layout()
     return fig
