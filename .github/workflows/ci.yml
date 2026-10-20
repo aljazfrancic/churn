@@ -1,0 +1,37 @@
+# D10: prove that the lockfile installs and everything runs on a clean machine.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies from the lockfile
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Unit tests
+        run: uv run pytest
+
+      - name: Execute the notebook end-to-end (incl. data download)
+        run: uv run pytest --nbmake churn_prediction.ipynb

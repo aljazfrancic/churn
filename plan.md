@@ -26,12 +26,12 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
   - [x] uv project: Python 3.13, `src/churn` package, runtime deps + dev group (D1–D6, D8)
   - [x] ruff config in `pyproject.toml` (D11)
   - [x] notebook skeleton `churn_prediction.ipynb` (section headings only)
-- [ ] **2. Data loading & cleaning** (`churn.data`)
-  - [ ] download helper: Kaggle public API → `data/`, SHA-256 check, cached (D12)
-  - [ ] `clean()`: `TotalCharges` → float, blanks → 0; drop `customerID`; `SeniorCitizen` → No/Yes (D16, D19)
-  - [ ] unit tests (D9)
-  - [ ] GitHub Actions CI (D10)
-  - [ ] notebook: data overview, dtype issue, cleaning
+- [x] **2. Data loading & cleaning** (`churn.config`, `churn.data`)
+  - [x] download helper: Kaggle public API → `data/`, SHA-256 check, cached (D12, D36)
+  - [x] `clean()`: `TotalCharges` → float, blanks → 0; drop `customerID`; `SeniorCitizen` → No/Yes (D16, D19, D37)
+  - [x] unit tests (D9)
+  - [x] GitHub Actions CI (D10)
+  - [x] notebook: data overview, dtype issue, cleaning
 - [ ] **3. Exploratory data analysis** (`churn.plots`, D34)
   - [ ] target distribution (counts + %)
   - [ ] churn rate per categorical feature
@@ -87,10 +87,11 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D9 | pytest for deterministic code only | Cleaning, features and pipeline shapes are where silent bugs hide (e.g. division by tenure 0); model quality is checked by CV, not unit tests. |
 | D10 | GitHub Actions: `uv sync --locked` → ruff → pytest → execute notebook (nbmake) | Proves the lockfile installs and the notebook runs end-to-end (incl. data download) on a clean machine. |
 | D11 | ruff for linting + formatting (incl. notebooks) | One fast tool instead of black + isort + flake8. |
-| D12 | Data not committed; download helper (Kaggle public API → `data/`, gitignored, SHA-256 verified) | Licence is "© Original Authors" (redistribution unclear); no login needed; checksum guarantees identical data. |
+| D12 | Data not committed; download helper (Kaggle public API → `data/`, gitignored); only the expected CSV is read from the zip, in memory; its SHA-256 is verified on every load | Licence is "© Original Authors" (redistribution unclear); no login needed; the checksum guarantees identical data (CSV, not zip, so re-zipping doesn't matter); reading one member in memory rules out malicious archive paths ("zip slip"). |
 | D13 | `RANDOM_STATE = 42` everywhere; notebook committed with outputs | Reproducible results; plots visible directly on GitHub. |
 | D14 | Repository text stays generic | Assignment PDF is internal: never committed (`.gitignore`), no organisation named. |
 | D15 | Code comments reference decision IDs (e.g. `# D16`) | Links code to the reasoning here. |
+| D36 | `churn/config.py` holds paths, data source, `RANDOM_STATE` and column groups | One place for constants shared by the notebook, modules and tests. |
 
 ### Data cleaning
 
@@ -100,6 +101,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D17 | "No internet service" / "No phone service" → "No" | Already encoded in `InternetService`/`PhoneService`; removes 7 redundant one-hot columns → cleaner coefficients and SHAP plots. |
 | D18 | Keep the 22 rows identical apart from `customerID` | All are tenure-1 basic plans with different IDs → plausible distinct customers. |
 | D19 | Drop `customerID`; `SeniorCitizen` 0/1 → No/Yes; keep all other features (incl. `gender`) | ID carries no signal; consistent binary columns; gender shows no effect in EDA, its ~0 importance is itself a finding. |
+| D37 | `clean()` returns a new frame, is idempotent and keeps `Churn` as Yes/No; `split_features_target()` returns X and y (1 = churn) | Safe to re-apply (notebook, tests, API input); readable labels in EDA plots; numeric target only where models need it. |
 
 ### Features & preprocessing
 
