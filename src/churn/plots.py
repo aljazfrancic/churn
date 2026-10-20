@@ -14,16 +14,18 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
+from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LinearSegmentedColormap, to_rgba
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
-from matplotlib.ticker import MaxNLocator, PercentFormatter
+from matplotlib.ticker import FixedLocator, MaxNLocator, NullLocator, PercentFormatter
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import precision_recall_curve, roc_curve
 
 from churn.config import NUMERIC_COLUMNS, TARGET
 from churn.eda import churn_rate_by, quantile_bins
 from churn.evaluation import SIMPLEST_FIRST
+from churn.explain import ShapValues
 
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
@@ -44,6 +46,8 @@ SELECTED_MODEL, OTHER_MODEL = CHURN, STAYED  # model plots: emphasis on the chos
 # Metric lines: categorical slots 1–3 (blue, orange, aqua), validated for every pair; aqua is
 # below 3:1 contrast on the surface, so every line also gets a direct label.
 METRIC_COLORS = {"f2": "#2a78d6", "recall": "#eb6834", "precision": "#1baf7a"}
+# Input values in SHAP plots (low → high): the palette's diverging pair with a gray midpoint.
+INPUT_VALUE = LinearSegmentedColormap.from_list("input_value", ["#2a78d6", MUTED, "#e34948"])
 
 SHORT_LABELS = {
     "Bank transfer (automatic)": "Bank transfer (auto)",
@@ -763,6 +767,198 @@ def plot_calibration_and_gains(
         ax.xaxis.set_major_formatter(PercentFormatter(1, decimals=0))
         ax.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
     note = f"Calibration: 10 bins of about {len(y) // 10} test customers each, by predicted risk"
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def _input_label(name: str, feature: str) -> str:
+    """`Contract_Two year` → `Contract = Two year`; numeric inputs keep their name."""
+    return name if name == feature else f"{feature} = {name[len(feature) + 1 :]}"
+
+
+def _swarm_offsets(values: np.ndarray, width: float = 0.38, bins: int = 40) -> np.ndarray:
+    """Vertical offsets in proportion to the local density of the values (a beeswarm look)."""
+    counts, edges = np.histogram(values, bins=bins)
+    which = np.clip(np.digitize(values, edges[1:-1]), 0, bins - 1)
+    spread = width * counts[which] / counts.max()
+    return np.random.default_rng(0).uniform(-1, 1, len(values)) * spread  # same figure every run
+
+
+def plot_shap_summary(shap_values: ShapValues, title: str, top: int = 15) -> Figure:
+    """Mean |SHAP| per original feature, and how the strongest inputs push the risk (D49).
+
+    Left: the one-hot columns of a feature summed. Right: one dot per customer and input,
+    coloured by the input's value (percentile for numeric inputs, no/yes for one-hot columns).
+    """
+    by_feature = shap_values.by_feature().abs().mean().sort_values(ascending=False)
+    strongest = shap_values.values.abs().mean().sort_values(ascending=False).index[:top]
+    fig, (bar_ax, swarm_ax) = plt.subplots(
+        1, 2, figsize=(11, 6.4), gridspec_kw={"width_ratios": [1, 1.5]}
+    )
+
+    y = np.arange(len(by_feature))[::-1]
+    bar_ax.barh(y, by_feature, height=0.6, color=CHURN)
+    for yi, value in zip(y, by_feature, strict=True):
+        bar_ax.text(
+            value + 0.008, yi, f"{value:.2f}", va="center", fontsize=8.5, color=INK_SECONDARY
+        )
+    bar_ax.set_yticks(y, by_feature.index, fontsize=8.5)
+    bar_ax.set(
+        title="Per feature", xlabel="Mean |SHAP value| (log-odds)", ylim=(-0.6, len(y) - 0.4)
+    )
+    bar_ax.grid(axis="y", visible=False)
+
+    for row, name in zip(range(top - 1, -1, -1), strongest, strict=True):
+        values, inputs = shap_values.values[name], shap_values.inputs[name]
+        binary = inputs.nunique() <= 2
+        shade = (
+            (inputs - inputs.min()) / (inputs.max() - inputs.min())
+            if binary
+            else inputs.rank(pct=True)
+        )
+        offsets = _swarm_offsets(values.to_numpy())
+        style = {"s": 5, "alpha": 0.8, "linewidth": 0, "rasterized": True}
+        swarm_ax.scatter(values, row + offsets, c=shade, cmap=INPUT_VALUE, vmin=0, vmax=1, **style)
+    labels = [_input_label(name, shap_values.groups[name]) for name in strongest]
+    swarm_ax.set_yticks(range(top - 1, -1, -1), labels, fontsize=8.5)
+    swarm_ax.axvline(0, color=MUTED, linewidth=1, linestyle=(0, (3, 3)))
+    swarm_ax.set(
+        title=f"Strongest {top} model inputs",
+        xlabel="SHAP value (log-odds; > 0 raises the churn risk)",
+        ylim=(-0.6, top - 0.4),
+    )
+    swarm_ax.grid(axis="y", visible=False)
+    bar = fig.colorbar(ScalarMappable(cmap=INPUT_VALUE), ax=swarm_ax, shrink=0.4, aspect=15)
+    bar.set_ticks([0, 1], labels=["low / no", "high / yes"])
+    bar.set_label("Input value", color=INK_SECONDARY)
+    bar.outline.set_visible(False)
+    note = (
+        f"{len(shap_values.values):,} test customers · SHAP value: how far an input moves a "
+        "customer's log-odds from those of a customer with every input at its training mean"
+    )
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def _format_value(value: object) -> str:
+    """Feature values for labels: amounts with two decimals, counts and levels as they are."""
+    if isinstance(value, float) and not value.is_integer():
+        return f"{value:,.2f}"
+    return str(int(value)) if isinstance(value, (int, float, np.integer)) else str(value)
+
+
+def _log_odds(probability: float) -> float:
+    return float(np.log(probability / (1 - probability)))
+
+
+def _risk(log_odds: float) -> float:
+    return float(1 / (1 + np.exp(-log_odds)))
+
+
+def plot_shap_waterfall(
+    shap_values: ShapValues, customer: object, threshold: float, title: str, top: int = 8
+) -> Figure:
+    """How each feature moves one customer's log-odds away from the average customer (D49).
+
+    Blue bars raise the churn risk, gray ones lower it; features beyond the `top` strongest are
+    summed in one bar. The dashed line is the decision threshold.
+    """
+    contributions = shap_values.by_feature().loc[customer]
+    order = contributions.abs().sort_values(ascending=False).index
+    features = shap_values.features.loc[customer]
+    steps = {
+        f"{name} = {_format_value(features[name])}": contributions[name] for name in order[:top]
+    }
+    steps[f"{len(order) - top} other features"] = contributions[order[top:]].sum()
+    start = shap_values.base_value
+    end = start + contributions.sum()
+
+    fig, ax = plt.subplots(figsize=(11, 4.8))
+    rows = len(steps) + 2  # start, the steps, end
+    y = np.arange(rows)[::-1]
+    left = start
+    for yi, value in zip(y[1:-1], steps.values(), strict=True):
+        color = CHURN if value > 0 else STAYED
+        ax.barh(yi, value, left=left, height=0.6, color=color, edgecolor=SURFACE, linewidth=1)
+        text = f"{value:+.2f}".replace("-", "\N{MINUS SIGN}")
+        x, ha = (left + value + 0.04, "left") if value > 0 else (left + value - 0.04, "right")
+        ax.text(x, yi, text, va="center", ha=ha, fontsize=8.5, color=INK_SECONDARY)
+        ax.plot([left + value] * 2, [yi - 0.3, yi - 0.7], color=AXIS, linewidth=1)  # connector
+        left += value
+    path = start + np.cumsum([0, *steps.values()])
+    low, high = min(path.min(), _log_odds(threshold)), max(path.max(), _log_odds(threshold))
+    pad = 0.12 * (high - low)  # room for the labels at both ends
+    for yi, value, side in [(y[0], start, -1), (y[-1], end, 1)]:
+        ax.plot(value, yi, "o", markersize=9, color=INK, markeredgecolor=SURFACE, mew=2)
+        ha = "right" if side < 0 else "left"
+        label = f"risk {_risk(value):.0%}"
+        ax.text(value + side * pad / 4, yi, label, ha=ha, va="center", fontsize=9, color=INK)
+    ax.axvline(_log_odds(threshold), color=MUTED, linewidth=1, linestyle=(0, (3, 3)))
+    ax.text(
+        _log_odds(threshold), rows - 0.45, f" threshold {threshold:.2f}", color=MUTED, fontsize=8.5
+    )
+    ax.set_yticks(y, ["Average customer", *steps, "This customer"], fontsize=9)
+    ax.set(xlabel="Log-odds of churning", xlim=(low - pad, high + pad), ylim=(-0.7, rows - 0.2))
+    ax.grid(axis="y", visible=False)
+    note = (
+        "Bars: SHAP values per feature (one-hot columns summed) · average customer: every input at "
+        "its training mean · risk = 1 / (1 + e^−log-odds)"
+    )
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def plot_odds_ratios(ratios: pd.DataFrame, title: str) -> Figure:
+    """Odds ratios with 95 % bootstrap intervals, the feature with the strongest effect first.
+
+    `ratios` comes from churn.explain.odds_ratios. Blue: the interval excludes 1 (a clear
+    effect); gray: it includes 1, so the input may have no effect at all (D50).
+    """
+    strength = np.log(ratios["odds_ratio"]).abs().groupby(level="feature", sort=False).max()
+    ordered = ratios.loc[strength.sort_values(ascending=False).index]  # levels stay together
+    features = ordered.index.get_level_values("feature")
+    gaps = np.cumsum(np.r_[0, features[1:] != features[:-1]]) * 0.5  # space between features
+    y = -(np.arange(len(ordered)) + gaps)
+    clear = (ordered["ci_low"] > 1) | (ordered["ci_high"] < 1)
+    colors = np.where(clear, CHURN, STAYED)
+
+    fig, ax = plt.subplots(figsize=(11, 0.24 * len(ordered) + 1.8))
+    ax.hlines(y, ordered["ci_low"], ordered["ci_high"], colors=colors, linewidth=2)
+    ax.scatter(
+        ordered["odds_ratio"], y, c=colors, s=45, zorder=3, edgecolors=SURFACE, linewidths=1.5
+    )
+    ax.axvline(1, color=MUTED, linewidth=1, linestyle=(0, (3, 3)))
+    transform = ax.get_yaxis_transform()
+    for yi, (_, row) in zip(y, ordered.iterrows(), strict=True):
+        text = f"{row['odds_ratio']:.2f} ({row['ci_low']:.2f}–{row['ci_high']:.2f})"
+        ax.text(1.02, yi, text, transform=transform, va="center", fontsize=8, color=INK_SECONDARY)
+    ax.set_yticks(
+        y, [f"{feature}: {comparison}" for feature, comparison in ordered.index], fontsize=8
+    )
+    ax.set_xscale("log")
+    ticks = [
+        t
+        for t in (0.125, 0.25, 0.5, 1, 2, 4)
+        if ordered["ci_low"].min() / 1.5 <= t <= ordered["ci_high"].max() * 1.5
+    ]
+    ax.xaxis.set_major_locator(FixedLocator(ticks))
+    ax.xaxis.set_minor_locator(NullLocator())
+    ax.set_xticklabels([f"{t:g}×" for t in ticks])
+    ax.set(
+        xlabel="Odds ratio (log scale; < 1 lowers, > 1 raises the odds of churning)",
+        ylim=(y.min() - 0.7, 0.7),
+    )
+    ax.grid(axis="y", visible=False)
+    note = (
+        "Other inputs held fixed · numeric inputs: per +1 SD after Yeo-Johnson · levels: vs the "
+        "most common level · lines: 95 % bootstrap intervals · blue: interval excludes 1"
+    )
     fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
     _suptitle(fig, title)
     fig.tight_layout()
