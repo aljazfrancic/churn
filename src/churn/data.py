@@ -12,11 +12,11 @@ import pandas as pd
 from churn.config import CSV_NAME, CSV_SHA256, DATA_DIR, DATA_URL, ID_COLUMN, TARGET
 
 
-def _verify(data: bytes, sha256: str) -> None:
-    """Raise if `data` is not the expected file (D12)."""
+def verify_sha256(data: bytes, sha256: str) -> None:
+    """Raise if `data` is not the expected file: the dataset (D12) or a saved model (D52)."""
     digest = hashlib.sha256(data).hexdigest()
     if digest != sha256:
-        raise ValueError(f"Unexpected data file: SHA-256 {digest}, expected {sha256}.")
+        raise ValueError(f"Unexpected file: SHA-256 {digest}, expected {sha256}.")
 
 
 def download_data(data_dir: Path = DATA_DIR, url: str = DATA_URL, sha256: str = CSV_SHA256) -> Path:
@@ -27,13 +27,13 @@ def download_data(data_dir: Path = DATA_DIR, url: str = DATA_URL, sha256: str = 
     """
     csv_path = data_dir / CSV_NAME
     if csv_path.exists():
-        _verify(csv_path.read_bytes(), sha256)
+        verify_sha256(csv_path.read_bytes(), sha256)
         return csv_path
 
     with urllib.request.urlopen(url, timeout=60) as response:
         archive = zipfile.ZipFile(io.BytesIO(response.read()))
     data = archive.read(CSV_NAME)
-    _verify(data, sha256)
+    verify_sha256(data, sha256)
     data_dir.mkdir(parents=True, exist_ok=True)
     csv_path.write_bytes(data)
     return csv_path
