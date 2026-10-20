@@ -40,13 +40,14 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
   - [x] association heatmap
   - [x] short written findings
   - [x] unit tests for the statistics helpers (D9)
-- [ ] **4. Feature engineering & preprocessing** (`churn.features`, `churn.pipeline`)
-  - [ ] stateless transformer: level collapse + new features (D17, D20, D21)
-  - [ ] `ColumnTransformer`: Yeo-Johnson numerics, one-hot categoricals (D22, D23)
-  - [ ] `build_pipeline(model, …)` with switches for the ablation
-  - [ ] unit tests (no NaN/inf at tenure 0, expected columns, fit/predict on a sample)
+- [x] **4. Feature engineering & preprocessing** (`churn.features`, `churn.pipeline`)
+  - [x] stratified 80/20 train/test split first, before anything is fitted (D26)
+  - [x] `FeatureEngineer`: stateless; re-applies `clean()`, level collapse, new features (D17, D20, D21)
+  - [x] `ColumnTransformer`: Yeo-Johnson numerics, one-hot categoricals, explicit column lists (D22, D23, D39)
+  - [x] `build_pipeline(model, scaler=…, collapse_levels=…, new_features=…)`: features → preprocessing → model; the switches let the ablation (step 7) vary each step
+  - [x] notebook: split, churn rate per new feature, skewness before/after scaling, model inputs
+  - [x] unit tests: tenure 0 (no NaN/inf), tenure groups, level collapse, switches, input columns, raw records in, unseen categories (D9)
 - [ ] **5. Model training & tuning** (`churn.models`)
-  - [ ] stratified 80/20 hold-out split (D26)
   - [ ] metrics primer in the notebook: definitions + business meaning (D29, D30)
   - [ ] candidates with search spaces; `RandomizedSearchCV`, 5-fold, PR-AUC (D24, D27)
   - [ ] ensemble of the best models (D24)
@@ -99,7 +100,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | ID | Decision | Why |
 |---|---|---|
 | D16 | `TotalCharges` text → float; 11 blanks (all `tenure = 0`) → 0 | New customers not billed yet: 0 is the true value; keeps all rows. |
-| D17 | "No internet service" / "No phone service" → "No" | Already encoded in `InternetService`/`PhoneService`; removes 7 redundant one-hot columns → cleaner coefficients and SHAP plots. |
+| D17 | "No internet service" / "No phone service" → "No" | Already encoded in `InternetService`/`PhoneService`; removes 14 redundant one-hot columns (7 features × 3 → 1, D23) → cleaner coefficients and SHAP plots. |
 | D18 | Keep the 22 rows identical apart from `customerID` | All are tenure-1 basic plans with different IDs → plausible distinct customers. |
 | D19 | Drop `customerID`; `SeniorCitizen` 0/1 → No/Yes; keep all other features (incl. `gender`) | ID carries no signal; consistent binary columns; gender shows no effect in EDA, its ~0 importance is itself a finding. |
 | D37 | `clean()` returns a new frame, is idempotent and keeps `Churn` as Yes/No; `split_features_target()` returns X and y (1 = churn) | Safe to re-apply (notebook, tests, API input); readable labels in EDA plots; numeric target only where models need it. |
@@ -108,10 +109,11 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 
 | ID | Decision | Why |
 |---|---|---|
-| D20 | New features: `AvgMonthlyCharges` = TotalCharges / tenure (MonthlyCharges if tenure = 0); `AbsChargeDelta` = \|MonthlyCharges − AvgMonthlyCharges\|; `NumAddons` (0–6 internet add-ons); `TenureGroup` (0–6, 7–12, 13–24, 25–48, 49–72 months) | Initial exploration: price changed → 34 % churn vs 23 % stable; 0 add-ons 52 % vs 6 add-ons 5 %; tenure ≤ 6 m 53 % vs > 48 m 10 %. `AvgMonthlyCharges` alone ≈ `MonthlyCharges` (r ≈ 1); kept as the suggested feature and as input for the delta. |
-| D21 | Level collapse + feature engineering as a stateless first step of the sklearn `Pipeline` | Saved model accepts raw customer records (no train/serve skew for the API); steps can be switched off for the ablation. |
-| D22 | Numerics: Yeo-Johnson `PowerTransformer` (standardised) | Fixes `TotalCharges` skew (0.96 → −0.15; log1p overcorrects to −0.82) and scales in one step; needed for LR/SVM/MLP, harmless for trees. |
-| D23 | Categoricals: one-hot (`drop="if_binary"`, `handle_unknown="ignore"`) | Nominal categories; Yes/No becomes one 0/1 column; unseen categories at serving time don't crash. |
+| D20 | New features: `AvgMonthlyCharges` = TotalCharges / tenure (MonthlyCharges if tenure = 0); `AbsChargeDelta` = \|MonthlyCharges − AvgMonthlyCharges\|; `NumAddons` (0–6 internet add-ons); `TenureGroup` (0–6, 7–12, 13–24, 25–48, 49+ months; open-ended for customers beyond 72) | Training split: bill changed by > $2 → 34 % churn vs 23 % stable, increases and decreases alike (hence absolute); 0 add-ons 52 % vs 6 add-ons 5 % (internet customers); tenure ≤ 6 m 52 % vs > 48 m 10 %. `AvgMonthlyCharges` alone ≈ `MonthlyCharges` (Pearson correlation r = 0.996; 1 = perfectly linear); kept as the suggested feature and as input for the delta. |
+| D21 | Type fixes (`clean()`, idempotent), level collapse + feature engineering as the stateless first step of the sklearn `Pipeline` (`FeatureEngineer`) | Saved model accepts raw customer records as exported (blank `TotalCharges`, `SeniorCitizen` 0/1, ID) → no train/serve skew for the API; stateless → nothing to leak between folds; steps can be switched off for the ablation. |
+| D22 | Numerics: Yeo-Johnson `PowerTransformer` (standardised) | Learns one exponent λ per feature: fixes skew where needed (`TotalCharges` 0.95 → −0.15, `AbsChargeDelta` 2.49 → 0.07) and leaves near-symmetric features almost unchanged. log1p is a fixed λ = 0: over-corrects most features to ≈ −0.8, under-corrects `AbsChargeDelta` (fitted λ = −0.39). Scales in the same step; needed for LR/SVM/MLP, harmless for trees. |
+| D23 | Categoricals: one-hot (`drop="if_binary"`, `handle_unknown="ignore"`); dense DataFrame output with readable names (`Contract_Two year`) | Nominal categories; Yes/No becomes one 0/1 column; unseen categories at serving time are encoded as all zeros (with a warning) instead of crashing; names feed SHAP and coefficient plots. |
+| D39 | `ColumnTransformer` gets explicit column lists from `config` (incl. the new features); every other input column is dropped | Fields a caller sends by mistake (an ID, even the target) can never reach the model; `build_pipeline` wires the lists to the switches in one place. |
 
 ### Modelling
 
@@ -119,7 +121,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 |---|---|---|
 | D24 | Candidates: dummy (prior), logistic regression, random forest, XGBoost, SVM (RBF), MLP, ensemble (soft voting / stacking) of the best | Linear, bagging, boosting, kernel and neural approaches plus a "mixture"; dummy anchors the comparison, LR is the interpretable reference. |
 | D25 | No resampling or class weights in the final model | Keeps probabilities calibrated (a "63 % risk" really means ≈ 63 % in the CRM); imbalance handled by metrics (D29, D30) and threshold (D31); class weights tested in the ablation (D32). |
-| D26 | Stratified 80/20 hold-out; tuning with stratified 5-fold CV on train; tuned models compared with repeated stratified 5-fold × 3 (new seed) | **Hold-out:** 20 % of customers (1,409) are set aside before any modelling and scored only once at the end → honest estimate for unseen customers.<br>**5-fold CV (tuning):** the training data is split into 5 parts; each hyperparameter setting is trained on 4 and validated on the 5th, rotating 5× → picks settings that generalise instead of fitting one lucky split.<br>**Repeated 5-fold × 3 (comparison):** tuned models are re-scored on 3 fresh shuffles (15 scores each); the tuning folds favour the settings chosen on them, new folds don't, and the spread shows whether model differences are real or noise.<br>**Stratified:** every split keeps the 26.5 % churn rate. Preprocessing is fitted on training folds only (inside the Pipeline) → no leakage. |
+| D26 | Stratified 80/20 hold-out; tuning with stratified 5-fold CV on train; tuned models compared with repeated stratified 5-fold × 3 (new seed) | **Hold-out:** 20 % of customers (1,409) are set aside first (start of notebook section 3, before anything is fitted) and scored only once at the end → honest estimate for unseen customers.<br>**5-fold CV (tuning):** the training data is split into 5 parts; each hyperparameter setting is trained on 4 and validated on the 5th, rotating 5× → picks settings that generalise instead of fitting one lucky split.<br>**Repeated 5-fold × 3 (comparison):** tuned models are re-scored on 3 fresh shuffles (15 scores each); the tuning folds favour the settings chosen on them, new folds don't, and the spread shows whether model differences are real or noise.<br>**Stratified:** every split keeps the 26.5 % churn rate. Preprocessing is fitted on training folds only (inside the Pipeline) → no leakage. |
 | D27 | `RandomizedSearchCV`, ~20–30 draws per model, small documented search spaces | Cheap, no extra dependency, enough for small spaces. |
 | D28 | Final model: best mean CV PR-AUC; prefer a simpler model if within 1 std | Differences on this data are small; simpler = explainable, calibrated, cheap to serve. |
 
@@ -132,7 +134,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D31 | Decision threshold maximises **F2** (CV on train, `TunedThresholdClassifierCV`) | Recall weighted 2× precision: a missed churner usually costs more than a wasted incentive; a metrics-vs-threshold plot shows other operating points. |
 | D32 | Preprocessing effects via ablation: cumulative variants, CV PR-AUC for LR, XGBoost and a scale-sensitive model | Shows what cleaning, scaling, new features and class weights actually contribute. |
 | D33 | Evaluation plots: CV boxplots, ROC & PR curves (all models), confusion matrix, metrics vs threshold, calibration curve, cumulative gains, SHAP summary + waterfall, LR odds ratios | Covers model comparison, operating point, probability quality and explanations for marketing. |
-| D34 | EDA plots: target distribution, churn rate per categorical, numeric distributions by churn, tenure × charges heatmap, churn vs tenure by contract, association heatmap. One theme from a validated colour-blind-safe palette: churn = accent blue, retained = gray (emphasis), magnitudes = one-hue blue ramp, contract types = ordinal ramp; values labelled directly; retina PNGs ~11 in wide on an opaque light surface | Palette validator: churn vs gray CVD ΔE 15.9 (target ≥ 8), contrast ≥ 3:1. Static images have no hover, so labels carry the values; the width matches GitHub's notebook view. |
+| D34 | EDA plots: target distribution, churn rate per categorical, numeric distributions by churn, tenure × charges heatmap, churn vs tenure by contract, association heatmap; section 3: churn rate per new feature. One theme from a validated colour-blind-safe palette: churn = accent blue, retained = gray (emphasis), magnitudes = one-hue blue ramp, contract types = ordinal ramp; values labelled directly; retina PNGs ~11 in wide on an opaque light surface | Palette validator: churn vs gray CVD ΔE 15.9 (target ≥ 8), contrast ≥ 3:1. Static images have no hover, so labels carry the values; the width matches GitHub's notebook view. |
 | D38 | Feature–churn association: Cramér's V (numeric features binned into quintiles) + chi² p-value; statistics in `churn/eda.py`, plotting in `churn/plots.py` | One 0–1 scale for categorical and numeric features; p-values show which differences could be chance; the notebook stays free of computation code. |
 
 ### Deliverables
