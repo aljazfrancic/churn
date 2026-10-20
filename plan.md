@@ -47,10 +47,11 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
   - [x] `build_pipeline(model, scaler=…, collapse_levels=…, new_features=…)`: features → preprocessing → model; the switches let the ablation (step 7) vary each step
   - [x] notebook: split, churn rate per new feature, skewness before/after scaling, model inputs
   - [x] unit tests: tenure 0 (no NaN/inf), tenure groups, level collapse, switches, input columns, raw records in, unseen categories (D9)
-- [ ] **5. Model training & tuning** (`churn.models`)
-  - [ ] metrics primer in the notebook: definitions + business meaning (D29, D30)
-  - [ ] candidates with search spaces; `RandomizedSearchCV`, 5-fold, PR-AUC (D24, D27)
-  - [ ] ensemble of the best models (D24)
+- [x] **5. Model training & tuning** (`churn.models`)
+  - [x] metrics primer in the notebook: definitions, business meaning, no-skill values (D29, D30)
+  - [x] candidates with search spaces; `RandomizedSearchCV`, 25 draws, 5-fold, PR-AUC (D24, D27)
+  - [x] soft-voting ensemble of the 3 best; SVM probabilities via Platt scaling (D24, D40)
+  - [x] unit tests: search spaces match their models, every tuned model gives probabilities (D9)
 - [ ] **6. Model comparison & selection** (`churn.evaluation`)
   - [ ] repeated stratified 5-fold × 3 on train: table + boxplots (D26)
   - [ ] pick the final model + written justification (D28)
@@ -119,10 +120,11 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 
 | ID | Decision | Why |
 |---|---|---|
-| D24 | Candidates: dummy (prior), logistic regression, random forest, XGBoost, SVM (RBF), MLP, ensemble (soft voting / stacking) of the best | Linear, bagging, boosting, kernel and neural approaches plus a "mixture"; dummy anchors the comparison, LR is the interpretable reference. |
+| D24 | Candidates: dummy (prior), logistic regression, random forest, XGBoost, SVM (RBF), MLP; soft-voting ensemble (average probability) of the 3 best by CV PR-AUC | Linear, bagging, boosting, kernel and neural approaches plus a "mixture"; dummy anchors the comparison, LR is the interpretable reference. Stacking would need another nested CV and rarely helps on 7k rows. |
 | D25 | No resampling or class weights in the final model | Keeps probabilities calibrated (a "63 % risk" really means ≈ 63 % in the CRM); imbalance handled by metrics (D29, D30) and threshold (D31); class weights tested in the ablation (D32). |
 | D26 | Stratified 80/20 hold-out; tuning with stratified 5-fold CV on train; tuned models compared with repeated stratified 5-fold × 3 (new seed) | **Hold-out:** 20 % of customers (1,409) are set aside first (start of notebook section 3, before anything is fitted) and scored only once at the end → honest estimate for unseen customers.<br>**5-fold CV (tuning):** the training data is split into 5 parts; each hyperparameter setting is trained on 4 and validated on the 5th, rotating 5× → picks settings that generalise instead of fitting one lucky split.<br>**Repeated 5-fold × 3 (comparison):** tuned models are re-scored on 3 fresh shuffles (15 scores each); the tuning folds favour the settings chosen on them, new folds don't, and the spread shows whether model differences are real or noise.<br>**Stratified:** every split keeps the 26.5 % churn rate. Preprocessing is fitted on training folds only (inside the Pipeline) → no leakage. |
-| D27 | `RandomizedSearchCV`, ~20–30 draws per model, small documented search spaces | Cheap, no extra dependency, enough for small spaces. |
+| D27 | `RandomizedSearchCV`, 25 draws per model on the same stratified 5-fold split, small documented search spaces (`churn.models.candidates`); searches use all cores, models run single-threaded | Cheap, no extra dependency, enough for small spaces (≈ 2 min on 12 cores); identical folds make the tuning scores comparable. |
+| D40 | SVM tuned on its decision scores; the final SVM is wrapped in `CalibratedClassifierCV(SVC(), ensemble=False)` (Platt scaling) | Ranking metrics need no probabilities (≈ 4× faster tuning); `SVC(probability=True)` is deprecated in scikit-learn 1.9; the sigmoid is monotonic (ranking unchanged) and gives probabilities for soft voting, Brier score and the CRM. |
 | D28 | Final model: best mean CV PR-AUC; prefer a simpler model if within 1 std | Differences on this data are small; simpler = explainable, calibrated, cheap to serve. |
 
 ### Evaluation
