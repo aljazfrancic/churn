@@ -27,6 +27,11 @@ jobs:
         with:
           enable-cache: true
 
+      # XGBoost's macOS wheel links Homebrew's OpenMP runtime without bundling it (D4, D61).
+      - name: Install OpenMP (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libomp
+
       - name: Install dependencies from the lockfile
         run: uv sync --locked
 

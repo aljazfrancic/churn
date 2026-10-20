@@ -121,7 +121,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D15 | Code comments reference decision IDs (e.g. `# D16`) | Links code to the reasoning here. |
 | D36 | `churn/config.py` holds paths, data source, `RANDOM_STATE` and column groups | One place for constants shared by the notebook, modules and tests. |
 | D43 | No `$` in notebook markdown: amounts written as USD (plots keep $) | Notebook renderers read the text between two `$` as LaTeX: GitHub's viewer broke the `AbsChargeDelta` line, JupyterLab 4 every paragraph with two amounts; escaping (`\$`) does not help in JupyterLab. |
-| D61 | CI: unit tests on Linux, macOS and Windows; lint, formatting and the notebook on Linux only | `uv.lock` installs a different XGBoost package on macOS (D4), whose OpenMP runtime is not bundled; Windows differs in paths and process start. The notebook's results don't depend on the OS, and it takes ≈ 13 min (macOS minutes count 10× for private repositories). |
+| D61 | CI: unit tests on Linux, macOS and Windows; lint, formatting and the notebook on Linux only. macOS gets `brew install libomp`, also noted in the README | `uv.lock` installs a different XGBoost package on macOS (D4), which links Homebrew's OpenMP runtime without bundling it (the first macOS run failed on `import xgboost`); Windows differs in paths and process start. The notebook's results don't depend on the OS, and it takes ≈ 13 min (macOS minutes count 10× for private repositories). |
 
 ### Data cleaning
 
