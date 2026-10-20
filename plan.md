@@ -80,7 +80,10 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
   - [x] notebook section 9: save, request & response of the reloaded model for three test customers, service design (endpoints, validation, deployment, monitoring, retraining) (D35, D55)
   - [x] unit tests: round trip, version, tampered file, raw records scored at the threshold, metadata from the hold-out tables (D9)
   - [x] `joblib` declared as a dependency (D56)
-- [ ] **11. README.md** – approach, metric results, usage
+- [x] **11. README.md** – approach, metric results, usage (D57–D60)
+  - [x] results: test metrics with 95 % intervals next to CV means and no-skill values; F2 threshold vs 0.5; strongest drivers (D57)
+  - [x] approach: one item per notebook section, linking the notebook and `plan.md` as the decision log (D58, D59)
+  - [x] usage: setup, notebook, checks, scoring snippet with the saved model; REST API summary, repository layout, data & licence (D57, D60)
 - [ ] **12. Final review** – check the repo against `plan.md`, decisions and the assignment PDF (ask the user to provide the PDF again)
   - [ ] recompute every number quoted in notebook markdown, `plan.md` and `README.md`; flag any that no output shows
 - [ ] **13. Publish** – GitHub "About" description + topics, make the repository public
@@ -177,6 +180,10 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | ID | Decision | Why |
 |---|---|---|
 | D35 | REST API described, not implemented: a FastAPI service loads the saved model at start-up; `POST /v1/predictions` (one or many customers), validated by a pydantic schema of the raw fields, returns risk, flag and model version; `GET /v1/model`, `GET /health`; Docker image from `uv.lock`; monitoring + retraining. Model saved to `models/` (gitignored, recreated by the notebook) | Implementation not required; the saved model and `churn.serving.score` make the description concrete (D55). |
+| D57 | README: results first (test metrics with 95 % intervals, CV means and no-skill values; threshold trade-off; strongest drivers), then approach, usage, REST API, repository layout, data & licence; every result copied from a notebook output | The requirements ask for the approach, the metric results and how to use everything; a reader who only skims sees the results; traceable numbers for the final review. |
+| D58 | No figures in the README; it links the notebook | GitHub renders the notebook with every chart; text and tables cannot drift from it, and no image files are added. |
+| D59 | The README links `plan.md` as the decision log | Shows the reasoning behind each choice and makes the Dx references in the code resolvable. |
+| D60 | Scoring new customers: a Python snippet with `load_model()` and `score()` | Uses the tested serving code; no CLI to maintain. |
 
 ### Serving
 
