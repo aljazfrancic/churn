@@ -21,11 +21,11 @@ Predict which customers of a telecom provider are likely to churn (leave) within
 
 One step = one commit, pushed only after approval. Decision IDs (Dx) refer to the next section.
 
-- [ ] **0. Plan & repo hygiene** – `plan.md`, `.gitignore`
-- [ ] **1. Project scaffold**
-  - [ ] uv project: Python 3.13, `src/churn` package, runtime deps + dev group (D1–D6, D8)
-  - [ ] ruff config in `pyproject.toml` (D11)
-  - [ ] notebook skeleton `churn_prediction.ipynb` (section headings only)
+- [x] **0. Plan & repo hygiene** – `plan.md`, `.gitignore`
+- [x] **1. Project scaffold**
+  - [x] uv project: Python 3.13, `src/churn` package, runtime deps + dev group (D1–D6, D8)
+  - [x] ruff config in `pyproject.toml` (D11)
+  - [x] notebook skeleton `churn_prediction.ipynb` (section headings only)
 - [ ] **2. Data loading & cleaning** (`churn.data`)
   - [ ] download helper: Kaggle public API → `data/`, SHA-256 check, cached (D12)
   - [ ] `clean()`: `TotalCharges` → float, blanks → 0; drop `customerID`; `SeniorCitizen` → No/Yes (D16, D19)
@@ -74,7 +74,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D1 | `uv`, Python **3.13** | uv is required. All dependencies have 3.13 wheels; keeps TensorFlow possible later (no 3.14 wheel yet). |
 | D2 | pandas, numpy, scikit-learn, matplotlib + **seaborn** | sklearn `Pipeline`/`ColumnTransformer` keep preprocessing inside CV folds (no leakage); seaborn gives nicer statistical plots with little code. |
 | D3 | Static plots only (no plotly) | Interactive plotly output does not render in GitHub's notebook viewer. |
-| D4 | **XGBoost** for gradient boosting | Industry standard for tabular data, sklearn API. LightGBM is noisy and overfits small data by default; CatBoost is heavier. |
+| D4 | **XGBoost** for gradient boosting; CPU-only `xgboost-cpu`, regular `xgboost` on macOS (environment markers) | Industry standard for tabular data, sklearn API. LightGBM is noisy and overfits small data by default; CatBoost is heavier. The default Linux wheel pulls a 305 MB NVIDIA NCCL library (multi-GPU only); the CPU build is 2–6 MB but has no macOS wheel (the regular macOS package is CPU-only anyway). |
 | D5 | **sklearn `MLPClassifier`** as neural net | Same Pipeline/CV API, no extra dependency. TensorFlow is overkill for 7k rows (NNs rarely beat GBM/LR on small tabular data) and heavy. |
 | D6 | **SHAP** for explainability | Global importance + per-customer explanations ("why is this customer at risk?") for marketing. |
 | D7 | Not used: Optuna, imbalanced-learn | Small search spaces → `RandomizedSearchCV` suffices; SMOTE on one-hot data is questionable and unnecessary with threshold tuning (D25, D31). |
