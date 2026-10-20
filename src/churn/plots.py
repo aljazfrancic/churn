@@ -9,13 +9,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap, to_rgba
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.ticker import PercentFormatter
 
 from churn.config import NUMERIC_COLUMNS, TARGET
-from churn.eda import churn_rate_by
+from churn.eda import churn_rate_by, quantile_bins
 
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
@@ -121,6 +122,33 @@ def plot_target_distribution(df: pd.DataFrame, title: str) -> Figure:
     return fig
 
 
+def _rate_panel(ax: Axes, rates: pd.DataFrame, overall: float, slots: int, title: str) -> None:
+    """Churn-rate bars, first level on top, with direct values and the overall rate (dashed).
+
+    `rates` has the columns churn_rate and customers; `slots` is the level count of the largest
+    panel, so panels with fewer levels are centred and all bars keep one thickness.
+    """
+    y = np.arange(len(rates))[::-1] + (slots - len(rates)) / 2
+    ax.barh(y, rates["churn_rate"], height=0.6, color=CHURN, edgecolor=SURFACE, linewidth=1)
+    labels = [f"{SHORT_LABELS.get(lvl, lvl)} ({n:,})" for lvl, n in rates["customers"].items()]
+    ax.set_yticks(y, labels, fontsize=8.5)
+    for yi, rate in zip(y, rates["churn_rate"], strict=True):
+        # Surface-coloured box so the dashed reference line breaks behind the value.
+        ax.text(
+            rate + 0.012,
+            yi,
+            f"{rate:.0%}",
+            va="center",
+            fontsize=8.5,
+            color=INK_SECONDARY,
+            bbox={"boxstyle": "square,pad=0.1", "facecolor": SURFACE, "edgecolor": "none"},
+        )
+    ax.axvline(overall, color=MUTED, linewidth=1, linestyle=(0, (3, 3)))
+    ax.set(xlim=(0, 0.62), ylim=(-0.6, slots - 0.4), xticks=[], title=title)
+    ax.grid(False)
+    ax.spines["bottom"].set_visible(False)
+
+
 def plot_churn_rate_by_category(
     df: pd.DataFrame, columns: list[str], title: str, ncols: int = 3
 ) -> Figure:
@@ -129,7 +157,7 @@ def plot_churn_rate_by_category(
     Every bar carries its value, so panels need no x-axis; the dashed line is the overall rate.
     """
     overall = df[TARGET].eq("Yes").mean()
-    rates = {col: churn_rate_by(df, col) for col in columns}
+    rates = {col: churn_rate_by(df, col) for col in columns}  # highest rate first
     spread = {col: r["churn_rate"].max() - r["churn_rate"].min() for col, r in rates.items()}
     ordered = sorted(columns, key=spread.get, reverse=True)
     max_levels = max(len(r) for r in rates.values())
@@ -137,27 +165,7 @@ def plot_churn_rate_by_category(
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(11, 1.6 * nrows))
     for ax, col in zip(axes.flat, ordered, strict=False):
-        r = rates[col]
-        # Highest rate on top; centre panels with fewer levels so bars keep one thickness.
-        y = np.arange(len(r))[::-1] + (max_levels - len(r)) / 2
-        ax.barh(y, r["churn_rate"], height=0.6, color=CHURN, edgecolor=SURFACE, linewidth=1)
-        labels = [f"{SHORT_LABELS.get(lvl, lvl)} ({n:,})" for lvl, n in r["customers"].items()]
-        ax.set_yticks(y, labels, fontsize=8.5)
-        for yi, rate in zip(y, r["churn_rate"], strict=True):
-            # Surface-coloured box so the dashed reference line breaks behind the value.
-            ax.text(
-                rate + 0.012,
-                yi,
-                f"{rate:.0%}",
-                va="center",
-                fontsize=8.5,
-                color=INK_SECONDARY,
-                bbox={"boxstyle": "square,pad=0.1", "facecolor": SURFACE, "edgecolor": "none"},
-            )
-        ax.axvline(overall, color=MUTED, linewidth=1, linestyle=(0, (3, 3)))
-        ax.set(xlim=(0, 0.62), ylim=(-0.6, max_levels - 0.4), xticks=[], title=col)
-        ax.grid(False)
-        ax.spines["bottom"].set_visible(False)
+        _rate_panel(ax, rates[col], overall, max_levels, col)
 
     for ax in axes.flat[len(ordered) :]:
         ax.set_axis_off()
@@ -171,6 +179,45 @@ def plot_churn_rate_by_category(
         color=INK_SECONDARY,
         fontsize=9,
     )
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def plot_new_features(features: pd.DataFrame, y: pd.Series, title: str) -> Figure:
+    """Churn rate per level of each engineered feature, in natural order (D20).
+
+    Continuous features are binned for display. NumAddons is shown for internet customers (the
+    others have nothing to count), AbsChargeDelta for customers with a billing history.
+    """
+    internet = features["InternetService"] != "No"
+    history = features["tenure"] > 1  # tenure 0–1: the average equals the current bill
+    delta = pd.cut(
+        features.loc[history, "AbsChargeDelta"],
+        [0, 1, 2, 5, np.inf],
+        right=False,
+        labels=["< $1", "$1–2", "$2–5", "≥ $5"],
+    )
+    panels = {
+        "TenureGroup (months)": features["TenureGroup"],
+        "NumAddons (internet only)": features.loc[internet, "NumAddons"],
+        "AbsChargeDelta (tenure > 1)": delta,
+        "AvgMonthlyCharges ($)": quantile_bins(features["AvgMonthlyCharges"]),
+    }
+    overall = y.mean()
+    slots = max(levels.nunique() for levels in panels.values())
+
+    fig, axes = plt.subplots(1, len(panels), figsize=(11, 2.8))
+    for ax, (name, levels) in zip(axes, panels.items(), strict=True):
+        # Select the panel's customers first, so integer levels don't turn into floats.
+        rates = (
+            y.loc[levels.index]
+            .groupby(levels, observed=True)
+            .agg(churn_rate="mean", customers="size")
+        )
+        _rate_panel(ax, rates, overall, slots, name)
+    note = f"Customers in brackets · dashed line = overall churn rate ({overall:.1%})"
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
     _suptitle(fig, title)
     fig.tight_layout()
     return fig

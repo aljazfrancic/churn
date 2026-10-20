@@ -16,6 +16,14 @@ RANDOM_STATE = 42  # D13
 ID_COLUMN = "customerID"
 TARGET = "Churn"
 NUMERIC_COLUMNS = ["tenure", "MonthlyCharges", "TotalCharges"]
+ADDON_COLUMNS = [  # internet add-ons
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+]
 CATEGORICAL_COLUMNS = [
     # demographics
     "gender",
@@ -26,14 +34,13 @@ CATEGORICAL_COLUMNS = [
     "PhoneService",
     "MultipleLines",
     "InternetService",
-    "OnlineSecurity",
-    "OnlineBackup",
-    "DeviceProtection",
-    "TechSupport",
-    "StreamingTV",
-    "StreamingMovies",
+    *ADDON_COLUMNS,
     # account
     "Contract",
     "PaperlessBilling",
     "PaymentMethod",
 ]
+
+# D20: engineered features, added by churn.features.FeatureEngineer
+NEW_NUMERIC_COLUMNS = ["AvgMonthlyCharges", "AbsChargeDelta", "NumAddons"]
+NEW_CATEGORICAL_COLUMNS = ["TenureGroup"]
