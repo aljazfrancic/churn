@@ -52,9 +52,11 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
   - [x] candidates with search spaces; `RandomizedSearchCV`, 25 draws, 5-fold, PR-AUC (D24, D27)
   - [x] soft-voting ensemble of the 3 best; SVM probabilities via Platt scaling (D24, D40)
   - [x] unit tests: search spaces match their models, every tuned model gives probabilities (D9)
-- [ ] **6. Model comparison & selection** (`churn.evaluation`)
-  - [ ] repeated stratified 5-fold × 3 on train: table + boxplots (D26)
-  - [ ] pick the final model + written justification (D28)
+- [x] **6. Model comparison & selection** (`churn.evaluation`)
+  - [x] repeated stratified 5-fold × 3 on train, same folds for every model: table incl. the tuning score (D26, D41)
+  - [x] boxplots: PR-AUC, same-fold difference to the selected model, Brier score (D33, D41)
+  - [x] `select_model()`: D28 as code with a complexity order + written justification → logistic regression (D28, D42)
+  - [x] unit tests: selection rule, complexity order covers every candidate, same folds for every model (D9)
 - [ ] **7. Preprocessing ablation** (D32)
   - [ ] cumulative variants (scaling, level collapse, new features, class weights)
   - [ ] table + chart + conclusion
@@ -126,6 +128,8 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D27 | `RandomizedSearchCV`, 25 draws per model on the same stratified 5-fold split, small documented search spaces (`churn.models.candidates`); searches use all cores, models run single-threaded | Cheap, no extra dependency, enough for small spaces (≈ 2 min on 12 cores); identical folds make the tuning scores comparable. |
 | D40 | SVM tuned on its decision scores; the final SVM is wrapped in `CalibratedClassifierCV(SVC(), ensemble=False)` (Platt scaling) | Ranking metrics need no probabilities (≈ 4× faster tuning); `SVC(probability=True)` is deprecated in scikit-learn 1.9; the sigmoid is monotonic (ranking unchanged) and gives probabilities for soft voting, Brier score and the CRM. |
 | D28 | Final model: best mean CV PR-AUC; prefer a simpler model if within 1 std | Differences on this data are small; simpler = explainable, calibrated, cheap to serve. |
+| D41 | Comparison: every model on the same 15 folds (`RepeatedStratifiedKFold`, seed `RANDOM_STATE + 1`). Table: PR-AUC mean + std, tuning PR-AUC, ROC-AUC, Brier, fit time. Figure: PR-AUC, PR-AUC difference to the selected model on the same fold, Brier; the dummy only in the table | Some folds are harder for every model: the raw spread (std ≈ 0.02) hides consistent gaps that same-fold differences reveal (std 0.003–0.014); the tuning column shows how optimistic the tuning folds were (D26); the dummy's 0.265 would squash the axes. |
+| D42 | `select_model()` applies D28 as code; complexity order: logistic regression < XGBoost < random forest < SVM < MLP < ensemble; the dummy is never selected | The choice follows a documented, tested rule instead of a judgement by eye. Ordered by explainability, calibration and serving cost: depth-2 XGBoost has fast exact TreeSHAP; the random forest has larger trees and less calibrated probabilities; the SVM needs Platt scaling and slow kernel SHAP; the MLP is a black box; the ensemble combines 3 models. |
 
 ### Evaluation
 
