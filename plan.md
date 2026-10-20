@@ -88,7 +88,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 |---|---|---|
 | D8 | Notebook `churn_prediction.ipynb` at repo root; logic in installable `src/churn/` package | Notebook is the first thing a reader sees and stays narrative; helper code lives in documented, testable modules. |
 | D9 | pytest for deterministic code only | Cleaning, features and pipeline shapes are where silent bugs hide (e.g. division by tenure 0); model quality is checked by CV, not unit tests. |
-| D10 | GitHub Actions: `uv sync --locked` → ruff → pytest → execute notebook (nbmake) | Proves the lockfile installs and the notebook runs end-to-end (incl. data download) on a clean machine. |
+| D10 | GitHub Actions: `uv sync --locked` → ruff → pytest → execute notebook (nbmake, cell timeout 30 min) | Proves the lockfile installs and the notebook runs end-to-end (incl. data download) on a clean machine. Model tuning takes ≈ 11 min on the 2-core runner, more than nbmake's default 5-min cell limit. |
 | D11 | ruff for linting + formatting (incl. notebooks) | One fast tool instead of black + isort + flake8. |
 | D12 | Data not committed; download helper (Kaggle public API → `data/`, gitignored); only the expected CSV is read from the zip, in memory; its SHA-256 is verified on every load | Licence is "© Original Authors" (redistribution unclear); no login needed; the checksum guarantees identical data (CSV, not zip, so re-zipping doesn't matter); reading one member in memory rules out malicious archive paths ("zip slip"). |
 | D13 | `RANDOM_STATE = 42` everywhere; notebook committed with outputs | Reproducible results; plots visible directly on GitHub. |

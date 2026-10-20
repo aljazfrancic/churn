@@ -33,5 +33,6 @@ jobs:
       - name: Unit tests
         run: uv run pytest
 
+      # Model tuning takes ~11 min on the 2-core runner; nbmake's default cell limit is 5 min.
       - name: Execute the notebook end-to-end (incl. data download)
-        run: uv run pytest --nbmake churn_prediction.ipynb
+        run: uv run pytest --nbmake --nbmake-timeout=1800 churn_prediction.ipynb
