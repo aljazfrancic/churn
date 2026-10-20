@@ -2,8 +2,9 @@
 
 Colours come from a validated, colour-blind-safe reference palette. Emphasis form: churned
 customers / churn rates are the accent blue, retained customers the de-emphasis gray, magnitudes a
-single-hue blue ramp (darker = more churn); in model plots the selected model takes the accent.
-Figures are static PNGs on an opaque light surface.
+single-hue blue ramp (darker = more churn); in model plots the selected model takes the accent,
+and threshold metrics the palette's first three categorical hues. Figures are static PNGs on an
+opaque light surface.
 """
 
 from collections.abc import Collection
@@ -17,6 +18,8 @@ from matplotlib.colors import LinearSegmentedColormap, to_rgba
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator, PercentFormatter
+from sklearn.calibration import calibration_curve
+from sklearn.metrics import precision_recall_curve, roc_curve
 
 from churn.config import NUMERIC_COLUMNS, TARGET
 from churn.eda import churn_rate_by, quantile_bins
@@ -38,6 +41,9 @@ SEQUENTIAL = LinearSegmentedColormap.from_list("churn_blues", BLUE_RAMP)
 # Contract length is ordered → one-hue ordinal ramp (steps 650 / 450 / 250), darkest = riskiest.
 CONTRACT_COLORS = {"Month-to-month": "#104281", "One year": "#2a78d6", "Two year": "#86b6ef"}
 SELECTED_MODEL, OTHER_MODEL = CHURN, STAYED  # model plots: emphasis on the chosen model
+# Metric lines: categorical slots 1–3 (blue, orange, aqua), validated for every pair; aqua is
+# below 3:1 contrast on the surface, so every line also gets a direct label.
+METRIC_COLORS = {"f2": "#2a78d6", "recall": "#eb6834", "precision": "#1baf7a"}
 
 SHORT_LABELS = {
     "Bank transfer (automatic)": "Bank transfer (auto)",
@@ -475,6 +481,288 @@ def plot_ablation(effects: pd.DataFrame, highlight: str, title: str) -> Figure:
         f"Dots: {len(effects)} folds · box: middle half, line: median · "
         "numbers: mean PR-AUC change (folds where it rose) · each panel has its own scale"
     )
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def _threshold_marker(
+    ax: Axes, x: float, y: float, label: str, chosen: bool, offset: tuple[int, int]
+) -> None:
+    """Where a threshold sits on a curve: filled for the chosen one, hollow for the others."""
+    face, edge = (SELECTED_MODEL, SURFACE) if chosen else (SURFACE, SELECTED_MODEL)
+    ax.plot(x, y, "o", markersize=8, markerfacecolor=face, markeredgecolor=edge, mew=2, zorder=4)
+    ha = "left" if offset[0] > 0 else "right"
+    va = "bottom" if offset[1] > 0 else "top"
+    ax.annotate(label, (x, y), xytext=offset, textcoords="offset points", ha=ha, va=va, fontsize=9)
+
+
+def _diagonal_label(ax: Axes, x: float, text: str) -> None:
+    """Muted label just below the dashed diagonal, rotated with it whatever the panel's shape."""
+    ax.text(
+        x,
+        x - 0.03,
+        text,
+        rotation=45,
+        transform_rotates_text=True,
+        rotation_mode="anchor",
+        ha="center",
+        va="top",
+        color=MUTED,
+        fontsize=9,
+    )
+
+
+def plot_holdout_curves(
+    y_true: pd.Series, proba: pd.DataFrame, selected: str, thresholds: dict[str, float], title: str
+) -> Figure:
+    """ROC and precision–recall curves on the test set (D33, D47).
+
+    `selected` takes the accent, the other models the gray; markers show where each threshold
+    sits on the selected curve (the last one filled: the chosen threshold). The dummy is left
+    out, as its curves are the no-skill lines.
+    """
+    y = np.asarray(y_true)
+    others = [name for name in proba.columns if name in SIMPLEST_FIRST and name != selected]
+    fig, (roc_ax, pr_ax) = plt.subplots(1, 2, figsize=(11, 4.6))
+    for name in [*others, selected]:  # the selected curve on top
+        style = (
+            {"color": SELECTED_MODEL, "linewidth": 2, "zorder": 3}
+            if name == selected
+            else {"color": OTHER_MODEL, "linewidth": 1, "alpha": 0.6}
+        )
+        fpr, tpr, _ = roc_curve(y, proba[name])
+        roc_ax.plot(fpr, tpr, **style)
+        precision, recall, _ = precision_recall_curve(y, proba[name])
+        pr_ax.plot(recall, precision, drawstyle="steps-post", **style)
+
+    dashed = {"color": MUTED, "linewidth": 1, "linestyle": (0, (3, 3))}
+    roc_ax.plot([0, 1], [0, 1], **dashed)
+    _diagonal_label(roc_ax, 0.75, "no skill")
+    pr_ax.axhline(y.mean(), **dashed)
+    pr_ax.text(0.02, y.mean() - 0.02, f"no skill ({y.mean():.1%} churn)", va="top", color=MUTED)
+
+    p = proba[selected].to_numpy()
+    for i, (label, threshold) in enumerate(thresholds.items()):
+        flagged = p >= threshold
+        recall, fpr, precision = flagged[y == 1].mean(), flagged[y == 0].mean(), y[flagged].mean()
+        chosen = i == len(thresholds) - 1
+        _threshold_marker(roc_ax, fpr, recall, label, chosen, offset=(8, -6))
+        _threshold_marker(pr_ax, recall, precision, label, chosen, offset=(8, 6))
+
+    roc_ax.set(
+        title="ROC curve",
+        xlabel="False-positive rate (loyal customers flagged)",
+        ylabel="Recall (churners flagged)",
+    )
+    pr_ax.set(
+        title="Precision–recall curve",
+        xlabel="Recall (churners flagged)",
+        ylabel="Precision (flagged customers who churn)",
+    )
+    for ax in (roc_ax, pr_ax):
+        ax.set(xlim=(0, 1), ylim=(0, 1.02))
+        ax.xaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+        ax.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+    handles = [
+        Line2D([], [], color=SELECTED_MODEL, linewidth=2),
+        Line2D([], [], color=OTHER_MODEL, linewidth=1, alpha=0.6),
+    ]
+    roc_ax.legend(handles, [f"{selected} (final)", "other models"], loc="lower right")
+    note = "Markers: customers with a churn probability at or above the threshold are flagged"
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def plot_confusion_matrices(
+    y_true: pd.Series, proba: np.ndarray, thresholds: dict[str, float], title: str
+) -> Figure:
+    """Test-set confusion matrix per threshold: counts and % of the actual class (D30, D47).
+
+    Rows and columns as in the metrics table of section 4.1: churners first, flagged first.
+    """
+    churns, p = np.asarray(y_true, dtype=bool), np.asarray(proba)
+    meaning = [["churners reached", "churners missed"], ["offers wasted", "left alone"]]
+    rows = [f"Churns ({churns.sum():,})", f"Stays ({(~churns).sum():,})"]
+    fig, axes = plt.subplots(1, len(thresholds), figsize=(11, 3.2))
+    for ax, (label, threshold) in zip(axes, thresholds.items(), strict=True):
+        flagged = p >= threshold
+        counts = np.array(
+            [
+                [np.sum(churns & flagged), np.sum(churns & ~flagged)],
+                [np.sum(~churns & flagged), np.sum(~churns & ~flagged)],
+            ]
+        )
+        shares = counts / counts.sum(axis=1, keepdims=True)
+        cells = [
+            [f"{counts[i, j]:,} ({shares[i, j]:.0%})\n{meaning[i][j]}" for j in range(2)]
+            for i in range(2)
+        ]
+        sns.heatmap(
+            shares,
+            cmap=SEQUENTIAL,
+            vmin=0,
+            vmax=1,
+            annot=cells,
+            fmt="",
+            annot_kws={"fontsize": 9.5},
+            cbar=False,
+            linewidths=2,
+            linecolor=SURFACE,
+            xticklabels=["Flagged (offer)", "Not flagged"],
+            yticklabels=rows,
+            ax=ax,
+        )
+        ax.tick_params(axis="y", rotation=0)
+        ax.set_title(f"Threshold {label}")
+        ax.grid(False)
+    note = "Count (share of the actual class): each row adds up to 100%"
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def _label_line(
+    ax: Axes, lines: pd.DataFrame, column: str, text: str, avoid: Collection[float]
+) -> None:
+    """Direct label where the line is farthest from the other lines, inside the frame and clear
+    of the vertical lines at `avoid`."""
+    inside = lines.loc[0.05:0.8]
+    clear = np.abs(np.subtract.outer(inside.index.to_numpy(), list(avoid))).min(axis=1) > 0.04
+    inside = inside[clear & inside[column].between(0.08, 0.9)]
+    gaps = inside.drop(columns=column).sub(inside[column], axis=0)
+    distance = gaps.abs().min(axis=1)
+    x = distance.idxmax()
+    nearest = gaps.loc[x].abs().idxmin()
+    above = gaps.loc[x, nearest] < 0  # the nearest line runs below: put the label above
+    ax.annotate(
+        text,
+        (x, inside.loc[x, column]),
+        xytext=(0, 6 if above else -6),
+        textcoords="offset points",
+        ha="center",
+        va="bottom" if above else "top",
+        color=INK_SECONDARY,
+        fontsize=9,
+        bbox={"boxstyle": "square,pad=0.1", "facecolor": SURFACE, "edgecolor": "none"},
+    )
+
+
+def plot_threshold_metrics(
+    curves: pd.DataFrame, thresholds: dict[str, float], n_customers: int, title: str
+) -> Figure:
+    """Precision, recall, F2 and the share of customers flagged at every threshold (D33).
+
+    `curves` comes from churn.threshold.metrics_by_threshold. Precision is hidden where fewer
+    than 30 customers are flagged; vertical lines mark `thresholds` (the last one: chosen).
+    """
+    curves = curves.copy()
+    flagged = curves["share_flagged"] * n_customers
+    curves["precision"] = curves["precision"].where(flagged >= MIN_CUSTOMERS)
+    lines = {
+        "precision": ("Precision", METRIC_COLORS["precision"], "-"),
+        "recall": ("Recall", METRIC_COLORS["recall"], "-"),
+        "f2": ("F2", METRIC_COLORS["f2"], "-"),
+        "share_flagged": ("Customers flagged", INK_SECONDARY, (0, (4, 3))),
+    }
+    fig, ax = plt.subplots(figsize=(11, 4.2))
+    for column, (label, color, style) in lines.items():
+        ax.plot(curves.index, curves[column], color=color, linestyle=style, label=label)
+    for column, (label, *_) in lines.items():
+        _label_line(ax, curves[list(lines)], column, label, thresholds.values())
+    for i, (label, threshold) in enumerate(thresholds.items()):
+        chosen = i == len(thresholds) - 1
+        ax.axvline(
+            threshold,
+            color=INK_SECONDARY if chosen else MUTED,
+            linewidth=1,
+            linestyle="-" if chosen else (0, (3, 3)),
+        )
+        ax.text(
+            threshold,
+            1.01,
+            label,
+            transform=ax.get_xaxis_transform(),
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color=INK_SECONDARY,
+        )
+    ax.set(
+        xlim=(0, 1),
+        ylim=(0, 1),
+        xlabel="Threshold (churn probability from which a customer is flagged)",
+    )
+    ax.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+    ax.legend(loc="upper right", ncols=4, bbox_to_anchor=(1, 1.16))
+    note = (
+        f"Test set ({n_customers:,} customers) · precision hidden where fewer than "
+        f"{MIN_CUSTOMERS} customers are flagged"
+    )
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def plot_calibration_and_gains(
+    y_true: pd.Series, proba: np.ndarray, thresholds: dict[str, float], title: str
+) -> Figure:
+    """Calibration curve (10 equal-size bins) and cumulative gains on the test set (D33).
+
+    Gains: customers contacted in order of predicted risk; markers show the share contacted and
+    the share of churners reached at each threshold (the last one filled: the chosen threshold).
+    """
+    y, p = np.asarray(y_true), np.asarray(proba)
+    fig, (cal_ax, gain_ax) = plt.subplots(1, 2, figsize=(11, 4.4))
+    dashed = {"color": MUTED, "linewidth": 1, "linestyle": (0, (3, 3))}
+
+    observed, predicted = calibration_curve(y, p, n_bins=10, strategy="quantile")
+    cal_ax.plot([0, 1], [0, 1], **dashed)
+    _diagonal_label(cal_ax, 0.85, "perfect calibration")
+    cal_ax.plot(
+        predicted,
+        observed,
+        color=SELECTED_MODEL,
+        marker="o",
+        markersize=8,
+        markeredgecolor=SURFACE,
+        markeredgewidth=2,
+    )
+    cal_ax.set(
+        title="Calibration",
+        xlabel="Predicted churn risk (mean of the bin)",
+        ylabel="Observed churn rate",
+    )
+
+    order = np.argsort(-p, kind="stable")
+    contacted = np.arange(len(y) + 1) / len(y)
+    reached = np.concatenate([[0], np.cumsum(y[order]) / y.sum()])
+    gain_ax.plot([0, 1], [0, 1], **dashed)
+    _diagonal_label(gain_ax, 0.75, "random order")
+    gain_ax.plot([0, y.mean(), 1], [0, 1, 1], color=MUTED, linewidth=1)
+    gain_ax.text(y.mean() + 0.02, 0.97, "perfect ranking", color=MUTED, va="top", fontsize=9)
+    gain_ax.plot(contacted, reached, color=SELECTED_MODEL)
+    for i, (label, threshold) in enumerate(thresholds.items()):
+        flagged = p >= threshold
+        chosen = i == len(thresholds) - 1
+        _threshold_marker(
+            gain_ax, flagged.mean(), flagged[y == 1].mean(), label, chosen, offset=(8, -6)
+        )
+    gain_ax.set(
+        title="Cumulative gains",
+        xlabel="Customers contacted, highest risk first",
+        ylabel="Churners reached",
+    )
+    for ax in (cal_ax, gain_ax):
+        ax.set(xlim=(0, 1), ylim=(0, 1.02))
+        ax.xaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+        ax.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+    note = f"Calibration: 10 bins of about {len(y) // 10} test customers each, by predicted risk"
     fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
     _suptitle(fig, title)
     fig.tight_layout()
