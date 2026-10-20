@@ -7,8 +7,8 @@ import zipfile
 import pandas as pd
 import pytest
 
-from churn.config import CSV_NAME
-from churn.data import clean, download_data, split_features_target
+from churn.config import ADDON_COLUMNS, CSV_NAME
+from churn.data import clean, download_data, quality_checks, split_features_target
 
 
 @pytest.fixture
@@ -45,6 +45,21 @@ def test_split_features_target(raw):
     X, y = split_features_target(clean(raw))
     assert "Churn" not in X.columns
     assert y.tolist() == [0, 1, 0]
+
+
+def test_quality_checks_count_blanks_and_identical_rows(raw_customers):
+    simple = raw_customers.iloc[[10]].assign(
+        customerID="9998-SIMPLE",
+        tenure=1,
+        Contract="Month-to-month",
+        **dict.fromkeys(ADDON_COLUMNS, "No"),
+    )
+    twin = simple.assign(customerID="9999-TWIN")  # identical apart from the ID
+    counts = quality_checks(pd.concat([raw_customers, simple, twin]))["count"]
+    assert counts["missing values"] == counts["duplicate customer IDs"] == 0
+    assert counts["blank TotalCharges"] == 3
+    assert counts["rows identical apart from the ID"] == 1
+    assert counts["… of them tenure 1, month-to-month, no add-ons"] == 1
 
 
 def _zip_with_csv(tmp_path, content: bytes):

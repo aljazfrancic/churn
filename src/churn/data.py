@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from churn.config import CSV_NAME, CSV_SHA256, DATA_DIR, DATA_URL, ID_COLUMN, TARGET
+from churn.config import ADDON_COLUMNS, CSV_NAME, CSV_SHA256, DATA_DIR, DATA_URL, ID_COLUMN, TARGET
 
 
 def verify_sha256(data: bytes, sha256: str) -> None:
@@ -58,11 +58,18 @@ def column_overview(df: pd.DataFrame) -> pd.DataFrame:
 
 def quality_checks(raw: pd.DataFrame) -> pd.DataFrame:
     """Integrity counts on the raw data: missing values, IDs, blanks, duplicates (D16, D18)."""
+    identical = raw[raw.drop(columns=ID_COLUMN).duplicated()]
+    simple_plan = (
+        identical["tenure"].eq(1)
+        & identical["Contract"].eq("Month-to-month")
+        & ~identical[ADDON_COLUMNS].eq("Yes").any(axis=1)
+    )
     counts = {
         "missing values": raw.isna().sum().sum(),
         "duplicate customer IDs": raw[ID_COLUMN].duplicated().sum(),
         "blank TotalCharges": (raw["TotalCharges"].astype(str).str.strip() == "").sum(),
-        "rows identical apart from the ID": raw.drop(columns=ID_COLUMN).duplicated().sum(),
+        "rows identical apart from the ID": len(identical),
+        "… of them tenure 1, month-to-month, no add-ons": simple_plan.sum(),
     }
     return pd.Series(counts, name="count").to_frame()
 

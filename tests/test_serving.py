@@ -64,8 +64,26 @@ def test_score_answers_raw_records_in_json(raw_customers, tmp_path):
     predictions = response["predictions"]
     assert [p["customerID"] for p in predictions] == raw_customers["customerID"].head(5).tolist()
     proba = pipeline.predict_proba(X.head(5))[:, 1]
-    assert [p["churn_probability"] for p in predictions] == pytest.approx(proba, abs=5e-4)
+    assert [p["churn_probability"] for p in predictions] == pytest.approx(
+        np.floor(proba * 1000) / 1000
+    )
     assert [p["flagged"] for p in predictions] == (proba >= 0.4).tolist()
+
+
+def test_shown_risk_reaches_the_threshold_only_when_flagged(raw_customers, tmp_path):
+    pipeline, X = _fitted(raw_customers)
+    proba = pipeline.predict_proba(X)[:, 1]
+    edge = int(np.flatnonzero(np.round(proba, 3) > proba)[0])  # rounding would lift this risk …
+    threshold = round(float(proba[edge]), 3)  # … to exactly the threshold
+    save_model(pipeline, threshold, {}, directory=tmp_path)
+    model, metadata = load_model(tmp_path)
+    records = raw_customers.drop(columns=TARGET).to_dict("records")
+    predictions = score(model, {"customers": records}, metadata["version"])["predictions"]
+
+    assert predictions[edge]["churn_probability"] < threshold
+    assert not predictions[edge]["flagged"]
+    for prediction in predictions:
+        assert (prediction["churn_probability"] >= threshold) == prediction["flagged"]
 
 
 def test_metadata_holds_training_data_and_expected_metrics():
