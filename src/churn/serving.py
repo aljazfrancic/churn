@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -91,6 +92,8 @@ def score(model: FixedThresholdClassifier, request: dict, version: str) -> dict:
 
     The records hold the CRM's fields as exported (blank TotalCharges, SeniorCitizen 0/1): the
     pipeline cleans them itself (D21). Every record needs its customerID, which is echoed back.
+    Probabilities are cut, not rounded, to 3 decimals: a shown risk reaches the threshold (2
+    decimals, D31) only if the customer is flagged (D62).
     """
     customers = pd.DataFrame.from_records(request["customers"])
     proba = model.predict_proba(customers)[:, 1]
@@ -99,7 +102,11 @@ def score(model: FixedThresholdClassifier, request: dict, version: str) -> dict:
         "model_version": version,
         "threshold": float(model.threshold),
         "predictions": [
-            {"customerID": customer, "churn_probability": round(float(p), 3), "flagged": bool(f)}
+            {
+                "customerID": customer,
+                "churn_probability": math.floor(p * 1000) / 1000,
+                "flagged": bool(f),
+            }
             for customer, p, f in zip(customers[ID_COLUMN], proba, flagged, strict=True)
         ],
     }

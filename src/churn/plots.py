@@ -63,6 +63,12 @@ NUMERIC_BINS = {
     "MonthlyCharges": np.arange(15, 125, 5),
     "TotalCharges": np.arange(0, 9001, 300),
 }
+# Medians in footnotes, churned before stayed; \$ as two $ in one text would start math mode.
+MEDIAN_FORMATS = {
+    "tenure": "tenure {} vs {} months",
+    "MonthlyCharges": r"monthly charges \${} vs \${}",
+    "TotalCharges": r"total charges \${} vs \${}",
+}
 MIN_CUSTOMERS = 30  # rates over fewer customers are too noisy to show
 
 
@@ -239,23 +245,39 @@ def plot_new_features(features: pd.DataFrame, y: pd.Series, title: str) -> Figur
 
 
 def plot_numeric_distributions(df: pd.DataFrame, title: str) -> Figure:
-    """Distribution of each numeric feature for churned vs retained customers (% of each group)."""
+    """Distribution of each numeric feature for churned vs retained customers (% of each group).
+
+    Dashed lines mark each group's median; the footnote gives their values (D65).
+    """
     fig, axes = plt.subplots(1, len(NUMERIC_COLUMNS), figsize=(11, 3.4))
+    medians = []
     for ax, col in zip(axes, NUMERIC_COLUMNS, strict=True):
         edges = NUMERIC_BINS[col]
-        shares = {}
+        shares, median = {}, {}
         for level, color in [("No", STAYED), ("Yes", CHURN)]:
             values = df.loc[df[TARGET] == level, col]
             shares[level] = np.histogram(values, bins=edges)[0] / len(values)
+            median[level] = values.median()
             ax.stairs(shares[level], edges, fill=True, color=color, alpha=0.1, linewidth=0)
             ax.stairs(shares[level], edges, color=color, linewidth=2)
+            ax.axvline(median[level], color=color, linewidth=1.2, linestyle=(0, (3, 3)))
+        medians.append(MEDIAN_FORMATS[col].format(f"{median['Yes']:,.0f}", f"{median['No']:,.0f}"))
         if ax is axes[0]:
-            # Direct labels above the bin where each group most exceeds the other (free space).
+            # Direct labels above the bin where each group most exceeds the other (free space);
+            # a surface-coloured box breaks the median lines behind them.
             for name, own, other in [("Churned", "Yes", "No"), ("Stayed", "No", "Yes")]:
                 i = (shares[own] - shares[other]).argmax()
                 right_half = i > len(edges) / 2
                 x, ha = (edges[i + 1], "right") if right_half else (edges[i], "left")
-                ax.text(x, shares[own][i] + 0.004, name, ha=ha, va="bottom", color=INK_SECONDARY)
+                ax.text(
+                    x,
+                    shares[own][i] + 0.004,
+                    name,
+                    ha=ha,
+                    va="bottom",
+                    color=INK_SECONDARY,
+                    bbox={"boxstyle": "square,pad=0.1", "facecolor": SURFACE, "edgecolor": "none"},
+                )
             ax.margins(y=0.12)
         ax.set_title(NUMERIC_LABELS[col])
         ax.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
@@ -264,6 +286,8 @@ def plot_numeric_distributions(df: pd.DataFrame, title: str) -> Figure:
     axes[0].set_ylabel("Share of group")
     handles = [Line2D([], [], color=c, linewidth=2) for c in (CHURN, STAYED)]
     fig.legend(handles, ["Churned", "Stayed"], loc="upper right", ncols=2)
+    note = "Dashed lines: medians, churned vs stayed: " + " · ".join(medians)
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
     _suptitle(fig, title)
     fig.tight_layout()
     return fig
@@ -308,7 +332,7 @@ def plot_churn_heatmap(df: pd.DataFrame, title: str) -> Figure:
 
 
 def plot_churn_by_tenure_and_contract(df: pd.DataFrame, title: str) -> Figure:
-    """Churn rate over tenure (6-month bins) for each contract type."""
+    """Churn rate over tenure (6-month bins) for each contract type, labelled at both ends (D65)."""
     edges = [-1, *range(6, 73, 6)]  # tenure 0 joins the first bin
     fig, ax = plt.subplots(figsize=(11, 4))
     for contract, color in CONTRACT_COLORS.items():
@@ -328,6 +352,18 @@ def plot_churn_by_tenure_and_contract(df: pd.DataFrame, title: str) -> Figure:
         )
         # Direct label at the line end (outside the plot area, so it never covers data).
         ax.text(x[-1] + 2, stats["churn_rate"].iloc[-1], contract, va="center", clip_on=False)
+        for i in (0, -1):  # the rates at both ends, above their markers
+            rate = stats["churn_rate"].iloc[i]
+            ax.annotate(
+                f"{rate:.0%}",
+                (x[i], rate),
+                xytext=(0, 8),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                color=INK_SECONDARY,
+                fontsize=9,
+            )
     ax.set(xlabel="Tenure (months)", ylabel="Churn rate", xlim=(0, 72), ylim=(0, None))
     ax.set_xticks(range(0, 73, 12))
     ax.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
@@ -428,7 +464,9 @@ def plot_model_comparison(scores: pd.DataFrame, selected: str, title: str) -> Fi
     fig, axes = plt.subplots(1, 3, figsize=(11, 3.8), sharey=True)
     means = {name: f"{value:.3f}" for name, value in pr_auc.mean().items()}
     _fold_panel(axes[0], pr_auc, {selected}, means, "PR-AUC (higher = better)")
-    counts = {name: f"better in {wins[name]}/{n_folds}" for name in order}
+    counts = {
+        name: f"better in {wins[name]}/{n_folds}\nstd {gain[name].std():.3f}" for name in order
+    }
     counts[selected] = "reference"
     _fold_panel(axes[1], gain, {selected}, counts, f"PR-AUC vs {selected}")
     axes[1].axvline(0, color=MUTED, linewidth=1, linestyle=(0, (3, 3)))
@@ -444,7 +482,7 @@ def plot_model_comparison(scores: pd.DataFrame, selected: str, title: str) -> Fi
             label.set(color=SELECTED_MODEL, fontweight="bold")
     note = (
         f"Dots: {n_folds} folds · box: middle half, line: median · numbers: mean PR-AUC and "
-        f"Brier score · centre: PR-AUC minus {selected} on the same fold"
+        f"Brier score · centre: PR-AUC minus {selected} on the same fold, and its std"
     )
     fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
     _suptitle(fig, title)

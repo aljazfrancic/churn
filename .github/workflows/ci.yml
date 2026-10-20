@@ -12,7 +12,30 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  # D61: unit tests on every OS; macOS installs a different XGBoost package (D4).
+  tests:
+    name: Unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies from the lockfile
+        run: uv sync --locked
+
+      - name: Unit tests
+        run: uv run pytest
+
+  # D61: lint and the full notebook on Linux only; their results don't depend on the OS.
+  notebook:
+    name: Lint and notebook
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -29,9 +52,6 @@ jobs:
 
       - name: Check formatting
         run: uv run ruff format --check .
-
-      - name: Unit tests
-        run: uv run pytest
 
       # Model tuning takes ~7 min on the GitHub runner; nbmake's default cell limit is 5 min.
       - name: Execute the notebook end-to-end (incl. data download)

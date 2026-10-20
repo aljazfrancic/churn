@@ -3,7 +3,16 @@
 import pandas as pd
 import pytest
 
-from churn.eda import churn_rate_by, cramers_v, format_p_value, quantile_bins
+from churn.eda import (
+    charge_correlations,
+    churn_by_bill_change,
+    churn_rate_by,
+    cramers_v,
+    format_p_value,
+    observed_vs_expected,
+    quantile_bins,
+    service_mix,
+)
 
 
 def test_churn_rate_by_sorts_highest_first():
@@ -30,4 +39,59 @@ def test_quantile_bins_cover_all_values():
 
 def test_format_p_value():
     assert format_p_value(0.0) == "< 1e-300"
-    assert format_p_value(0.0312) == "3e-02"
+    assert format_p_value(0.487) == "0.49"
+    assert format_p_value(0.0312) == "0.031"
+    assert format_p_value(5.86e-258) == "5.9e-258"
+
+
+def test_service_mix_names_every_combination():
+    df = pd.DataFrame(
+        {
+            "PhoneService": ["Yes", "Yes", "Yes", "No", "No"],
+            "InternetService": ["No", "DSL", "Fiber optic", "DSL", "No"],
+        }
+    )
+    assert service_mix(df).tolist() == [
+        "Phone only",
+        "Phone + DSL",
+        "Phone + Fiber optic",
+        "DSL only",
+        "Neither",
+    ]
+
+
+def test_observed_vs_expected_uses_the_overall_churn_rate():
+    df = pd.DataFrame({"Contract": ["A", "A", "A", "B"], "Churn": ["Yes", "Yes", "No", "No"]})
+    table = observed_vs_expected(df, "Contract")  # overall churn rate: 2 of 4
+    assert table["customers"].tolist() == [3, 1]
+    assert table["churned"].tolist() == [2, 0]
+    assert table["churned_if_unrelated"].tolist() == [1.5, 0.5]
+
+
+def test_bill_change_keeps_increases_and_decreases_apart():
+    features = pd.DataFrame(
+        {
+            "tenure": [1, 12, 12, 12, 12],  # the first has no billing history yet
+            "MonthlyCharges": [50.0, 80.0, 50.0, 50.0, 51.0],
+            "AvgMonthlyCharges": [50.0, 70.0, 60.0, 50.0, 50.0],
+        }
+    )
+    y = pd.Series([1, 1, 1, 0, 1])
+    table = churn_by_bill_change(features, y)
+    assert table.index.tolist() == ["up > USD 2", "within ± USD 2", "down > USD 2"]
+    assert table["customers"].tolist() == [1, 2, 1]
+    assert table["churn_rate"].tolist() == [1.0, 0.5, 1.0]
+
+
+def test_charge_correlations_of_consistent_bills():
+    tenure = pd.Series([1, 2, 3, 4])
+    monthly = pd.Series([20.0, 50.0, 80.0, 110.0])
+    features = pd.DataFrame(
+        {
+            "tenure": tenure,
+            "MonthlyCharges": monthly,
+            "TotalCharges": tenure * monthly,
+            "AvgMonthlyCharges": monthly,
+        }
+    )
+    assert charge_correlations(features).tolist() == pytest.approx([1.0, 1.0])
