@@ -68,6 +68,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 - [ ] **10. Persistence & REST API** – save pipeline + threshold + metadata to `models/`; API design section (D35)
 - [ ] **11. README.md** – approach, metric results, usage
 - [ ] **12. Final review** – check the repo against `plan.md`, decisions and the assignment PDF (ask the user to provide the PDF again)
+  - [ ] recompute every number quoted in notebook markdown, `plan.md` and `README.md`; flag any that no output shows
 - [ ] **13. Publish** – GitHub "About" description + topics, make the repository public
 
 ## Decisions & design
@@ -113,7 +114,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 
 | ID | Decision | Why |
 |---|---|---|
-| D20 | New features: `AvgMonthlyCharges` = TotalCharges / tenure (MonthlyCharges if tenure = 0); `AbsChargeDelta` = \|MonthlyCharges − AvgMonthlyCharges\|; `NumAddons` (0–6 internet add-ons); `TenureGroup` (0–6, 7–12, 13–24, 25–48, 49+ months; open-ended for customers beyond 72) | Training split: bill changed by > $2 → 34 % churn vs 23 % stable, increases and decreases alike (hence absolute); 0 add-ons 52 % vs 6 add-ons 5 % (internet customers); tenure ≤ 6 m 52 % vs > 48 m 10 %. `AvgMonthlyCharges` alone ≈ `MonthlyCharges` (Pearson correlation r = 0.996; 1 = perfectly linear); kept as the suggested feature and as input for the delta. |
+| D20 | New features: `AvgMonthlyCharges` = TotalCharges / tenure (MonthlyCharges if tenure = 0); `AbsChargeDelta` = \|MonthlyCharges − AvgMonthlyCharges\|; `NumAddons` (0–6 internet add-ons); `TenureGroup` (0–6, 7–12, 13–24, 25–48, 49+ months; open-ended for customers beyond 72) | Training split: bill changed by > $2 → 34 % churn vs 18 % stable (tenure > 1), increases and decreases alike (hence absolute; increase and decrease as two features: same CV PR-AUC, equal LR weights); 0 add-ons 52 % vs 6 add-ons 5 % (internet customers); tenure ≤ 6 m 52 % vs > 48 m 10 %. `AvgMonthlyCharges` alone ≈ `MonthlyCharges` (Pearson correlation r = 0.996; 1 = perfectly linear); kept as the suggested feature and as input for the delta. |
 | D21 | Type fixes (`clean()`, idempotent), level collapse + feature engineering as the stateless first step of the sklearn `Pipeline` (`FeatureEngineer`) | Saved model accepts raw customer records as exported (blank `TotalCharges`, `SeniorCitizen` 0/1, ID) → no train/serve skew for the API; stateless → nothing to leak between folds; steps can be switched off for the ablation. |
 | D22 | Numerics: Yeo-Johnson `PowerTransformer` (standardised) | Learns one exponent λ per feature: fixes skew where needed (`TotalCharges` 0.95 → −0.15, `AbsChargeDelta` 2.49 → 0.07) and leaves near-symmetric features almost unchanged. log1p is a fixed λ = 0: over-corrects most features to ≈ −0.8, under-corrects `AbsChargeDelta` (fitted λ = −0.39). Scales in the same step; needed for LR/SVM/MLP, harmless for trees. |
 | D23 | Categoricals: one-hot (`drop="if_binary"`, `handle_unknown="ignore"`); dense DataFrame output with readable names (`Contract_Two year`) | Nominal categories; Yes/No becomes one 0/1 column; unseen categories at serving time are encoded as all zeros (with a warning) instead of crashing; names feed SHAP and coefficient plots. |
