@@ -73,7 +73,13 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
   - [x] summary: mean |SHAP| per original feature + beeswarm of the strongest inputs; waterfall of the typical flagged churner (D33, D49)
   - [x] odds ratios vs the most common level, numerics per 1 SD, bootstrap 95 % intervals; forest plot (D50)
   - [x] unit tests: inputs map to their features, SHAP values add up to the log-odds, typical churner, odds-ratio contrasts (D9)
-- [ ] **10. Persistence & REST API** – save pipeline + threshold + metadata to `models/`; API design section (D35)
+- [x] **10. Persistence & REST API** (`churn.serving`, D35, D51–D56)
+  - [x] save the evaluated model with its F2 threshold (`FixedThresholdClassifier`) + metadata JSON to `models/` (D51–D54)
+  - [x] `load_model()` checks the SHA-256 before unpickling (D52)
+  - [x] `score()`: request body of raw CRM records → response body with risk, flag and model version (D55)
+  - [x] notebook section 9: save, request & response of the reloaded model for three test customers, service design (endpoints, validation, deployment, monitoring, retraining) (D35, D55)
+  - [x] unit tests: round trip, version, tampered file, raw records scored at the threshold, metadata from the hold-out tables (D9)
+  - [x] `joblib` declared as a dependency (D56)
 - [ ] **11. README.md** – approach, metric results, usage
 - [ ] **12. Final review** – check the repo against `plan.md`, decisions and the assignment PDF (ask the user to provide the PDF again)
   - [ ] recompute every number quoted in notebook markdown, `plan.md` and `README.md`; flag any that no output shows
@@ -92,6 +98,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D5 | **sklearn `MLPClassifier`** as neural net | Same Pipeline/CV API, no extra dependency. TensorFlow is overkill for 7k rows (NNs rarely beat GBM/LR on small tabular data) and heavy. |
 | D6 | **SHAP** for explainability; `ipywidgets` in the dev group | Global importance + per-customer explanations ("why is this customer at risk?") for marketing. shap imports `tqdm.auto`, which prints a warning in Jupyter unless the progress widget is installed. |
 | D7 | Not used: Optuna, imbalanced-learn | Small search spaces → `RandomizedSearchCV` suffices; SMOTE on one-hot data is questionable and unnecessary with threshold tuning (D25, D31). |
+| D56 | `joblib` declared as a runtime dependency | Imported directly (parallel loops, model files), so declared instead of relying on scikit-learn to install it. |
 
 ### Project & engineering
 
@@ -169,4 +176,14 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 
 | ID | Decision | Why |
 |---|---|---|
-| D35 | REST API described, not implemented: FastAPI service loads the joblib-saved pipeline (+ threshold, version); `POST /predict` (single + batch) with a pydantic schema of raw customer fields; returns probability, label, model version; Docker; monitoring + retraining. Pipeline saved to `models/` (gitignored, recreated by the notebook) | Implementation not required; the saved pipeline makes the description concrete. |
+| D35 | REST API described, not implemented: a FastAPI service loads the saved model at start-up; `POST /v1/predictions` (one or many customers), validated by a pydantic schema of the raw fields, returns risk, flag and model version; `GET /v1/model`, `GET /health`; Docker image from `uv.lock`; monitoring + retraining. Model saved to `models/` (gitignored, recreated by the notebook) | Implementation not required; the saved model and `churn.serving.score` make the description concrete (D55). |
+
+### Serving
+
+| ID | Decision | Why |
+|---|---|---|
+| D51 | Saved model: the evaluated one (logistic regression trained on the training set, F2 threshold), not refitted on all 7,043 customers | Test metrics, threshold and explanations describe exactly this file, and the test set stays untouched for comparing future versions (champion/challenger). Refitting would add 25 % more data, but the saved file would never have been evaluated. |
+| D52 | `churn_model.joblib`: scikit-learn's `FixedThresholdClassifier` (fitted pipeline + threshold); `churn_model.json`: metadata incl. the joblib file's SHA-256, checked before unpickling | `predict()` flags at the F2 threshold by construction (the bare pipeline's `predict()` would use 0.5); the metadata is readable without unpickling; unpickling runs code, so a corrupted or swapped file is rejected first (as D12). skops would avoid pickle, but adds a dependency and needs every custom class listed as trusted. |
+| D53 | Model version: UTC save date + first 8 hex characters of the file's SHA-256 (e.g. `20261020-e148cbe7`) | Sorts by date, is readable and changes whenever the file does; the CRM stores it with every score (audit, rollback). |
+| D54 | Metadata: version, creation time, SHA-256, model name, threshold; training data (customers, churn rate, data SHA-256); expected metrics (CV PR-AUC; test PR-AUC, ROC-AUC, Brier, and precision, recall and share flagged at the threshold, with 95 % intervals). No library versions or input fields | Lineage, and the baseline that monitoring compares live results with. Library versions are pinned by `uv.lock` (and scikit-learn warns on a mismatch); the input fields are in `churn.config` and the request schema. |
+| D55 | `churn.serving.score`: request body `{"customers": [raw records]}` → response body `{"model_version", "threshold", "predictions": [{"customerID", "churn_probability", "flagged"}]}`; notebook demo with the reloaded file on three test customers (typical flagged churner of section 8.2, lowest-risk loyal customer, brand-new customer with a blank `TotalCharges`); per-customer reasons only described | The endpoint's exact request and response without a web framework; proves that the saved file scores raw CRM records (D21). Reasons (exact SHAP for the regression) would need the training means of the inputs saved as well: an extension. |

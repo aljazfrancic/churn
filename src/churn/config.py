@@ -5,6 +5,7 @@ from pathlib import Path
 # Repository root (the package is installed in editable mode by `uv sync`).
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"  # gitignored, filled by churn.data.download_data (D12)
+MODELS_DIR = ROOT_DIR / "models"  # gitignored, filled by churn.serving.save_model (D35)
 
 # D12: Kaggle's public download endpoint works without login; the checksum pins the exact file.
 DATA_URL = "https://www.kaggle.com/api/v1/datasets/download/blastchar/telco-customer-churn"
