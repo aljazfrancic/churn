@@ -6,6 +6,8 @@ single-hue blue ramp (darker = more churn); in model plots the selected model ta
 Figures are static PNGs on an opaque light surface.
 """
 
+from collections.abc import Collection
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -14,7 +16,7 @@ from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap, to_rgba
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
-from matplotlib.ticker import PercentFormatter
+from matplotlib.ticker import MaxNLocator, PercentFormatter
 
 from churn.config import NUMERIC_COLUMNS, TARGET
 from churn.eda import churn_rate_by, quantile_bins
@@ -358,16 +360,19 @@ def plot_association_matrix(matrix: pd.DataFrame, title: str) -> Figure:
     return fig
 
 
-def _fold_panel(ax: Axes, folds: pd.DataFrame, highlight: str, labels: dict, title: str) -> None:
-    """Box + dots of the fold scores, one column of `folds` per model, first column on top.
+def _fold_panel(
+    ax: Axes, folds: pd.DataFrame, highlight: Collection[str], labels: dict, title: str
+) -> None:
+    """Box + dots of the fold scores, one row per column of `folds`, first column on top.
 
-    Whiskers span all folds, as every fold is drawn anyway; `labels` sit right of the panel.
+    Columns in `highlight` take the accent. Whiskers span all folds, as every fold is drawn
+    anyway; `labels` sit right of the panel.
     """
     jitter = np.random.default_rng(0).uniform(-0.15, 0.15, len(folds))  # same figure every run
     transform = ax.get_yaxis_transform()  # x in axes fraction, y in data
     for y, name in zip(range(folds.shape[1] - 1, -1, -1), folds.columns, strict=True):
-        color = SELECTED_MODEL if name == highlight else OTHER_MODEL
-        text_color = SELECTED_MODEL if name == highlight else INK_SECONDARY
+        color = SELECTED_MODEL if name in highlight else OTHER_MODEL
+        text_color = SELECTED_MODEL if name in highlight else INK_SECONDARY
         ax.text(
             1.03, y, labels[name], transform=transform, va="center", fontsize=9, color=text_color
         )
@@ -412,12 +417,15 @@ def plot_model_comparison(scores: pd.DataFrame, selected: str, title: str) -> Fi
 
     fig, axes = plt.subplots(1, 3, figsize=(11, 3.8), sharey=True)
     means = {name: f"{value:.3f}" for name, value in pr_auc.mean().items()}
-    _fold_panel(axes[0], pr_auc, selected, means, "PR-AUC (higher = better)")
+    _fold_panel(axes[0], pr_auc, {selected}, means, "PR-AUC (higher = better)")
     counts = {name: f"better in {wins[name]}/{n_folds}" for name in order}
-    _fold_panel(axes[1], gain, selected, counts | {selected: "reference"}, f"PR-AUC vs {selected}")
+    counts[selected] = "reference"
+    _fold_panel(axes[1], gain, {selected}, counts, f"PR-AUC vs {selected}")
     axes[1].axvline(0, color=MUTED, linewidth=1, linestyle=(0, (3, 3)))
     means = {name: f"{value:.3f}" for name, value in brier.mean().items()}
-    _fold_panel(axes[2], brier, selected, means, "Brier score (lower = better)")
+    _fold_panel(axes[2], brier, {selected}, means, "Brier score (lower = better)")
+    for ax, metric in zip(axes, ["PR-AUC", "PR-AUC difference", "Brier score"], strict=True):
+        ax.set_xlabel(metric)
 
     axes[0].set_yticks(range(len(order) - 1, -1, -1), order)
     axes[0].set_ylim(-0.6, len(order) - 0.4)
@@ -425,8 +433,47 @@ def plot_model_comparison(scores: pd.DataFrame, selected: str, title: str) -> Fi
         if label.get_text() == selected:
             label.set(color=SELECTED_MODEL, fontweight="bold")
     note = (
-        f"Dots: {n_folds} folds · box: middle half, line: median · numbers: mean · "
-        f"centre: PR-AUC minus {selected} on the same fold"
+        f"Dots: {n_folds} folds · box: middle half, line: median · numbers: mean PR-AUC and "
+        f"Brier score · centre: PR-AUC minus {selected} on the same fold"
+    )
+    fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
+    _suptitle(fig, title)
+    fig.tight_layout()
+    return fig
+
+
+def _change_label(changes: pd.Series) -> str:
+    """Mean change (typographic minus) and the folds where it rose; 'identical' if none moved."""
+    if (changes == 0).all():
+        return "identical"
+    mean = round(changes.mean(), 3) + 0.0  # + 0.0 turns -0.0 into 0.0
+    return f"{mean:+.3f} ({(changes > 0).sum()}/{len(changes)})".replace("-", "\N{MINUS SIGN}")
+
+
+def plot_ablation(effects: pd.DataFrame, highlight: str, title: str) -> Figure:
+    """Same-fold PR-AUC change of each preprocessing step, one panel per model (D44).
+
+    `effects` comes from churn.ablation.step_effects. Rows are the steps in the order they are
+    added; every panel has its own x-scale, as the unscaled SVM is far behind every other variant.
+    """
+    models = effects.columns.unique(level=0)
+    steps = effects[models[0]].columns
+    fig, axes = plt.subplots(1, len(models), figsize=(11, 3.4), sharey=True)
+    for ax, model in zip(axes, models, strict=True):
+        changes = effects[model]
+        labels = {step: _change_label(changes[step]) for step in steps}
+        rows, name = (steps, f"{model} (final)") if model == highlight else ([], model)
+        _fold_panel(ax, changes, rows, labels, name)
+        ax.axvline(0, color=MUTED, linewidth=1, linestyle=(0, (3, 3)))
+        # Narrow panels: few, round ticks so their labels never collide.
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 5, 10]))
+        ax.set_xlabel("PR-AUC change")
+
+    axes[0].set_yticks(range(len(steps) - 1, -1, -1), steps)
+    axes[0].set_ylim(-0.6, len(steps) - 0.4)
+    note = (
+        f"Dots: {len(effects)} folds · box: middle half, line: median · "
+        "numbers: mean PR-AUC change (folds where it rose) · each panel has its own scale"
     )
     fig.text(0.01, -0.02, note, color=MUTED, fontsize=8.5)
     _suptitle(fig, title)

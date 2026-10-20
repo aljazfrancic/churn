@@ -26,7 +26,8 @@ def candidates() -> dict[str, tuple[BaseEstimator, dict]]:
     """
     return {
         "Dummy (prior)": (DummyClassifier(strategy="prior"), {}),
-        "Logistic regression": (LogisticRegression(max_iter=5000), {"C": loguniform(1e-3, 1e2)}),
+        # D46: scaled inputs need < 100 iterations, the unscaled ablation baseline up to ~5,200.
+        "Logistic regression": (LogisticRegression(max_iter=10_000), {"C": loguniform(1e-3, 1e2)}),
         "Random forest": (
             RandomForestClassifier(random_state=RANDOM_STATE),
             {
