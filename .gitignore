@@ -1,0 +1,28 @@
+# Assignment brief is internal – never commit PDFs (D14)
+*.pdf
+
+# Downloaded data and trained models are recreated by the notebook (D12, D35)
+data/
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environment (uv)
+.venv/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
