@@ -32,6 +32,9 @@ dev = [
     "ruff>=0.17.1",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 # D11: lint + format .py files and the notebook
 [tool.ruff]
 line-length = 100
