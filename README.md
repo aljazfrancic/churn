@@ -42,7 +42,7 @@ Each item is a section of the notebook; the logic lives in the tested package [`
 
 ## Usage
 
-Requires [uv](https://docs.astral.sh/uv/), which installs Python 3.13 and the locked dependencies:
+Requires [uv](https://docs.astral.sh/uv/), which installs Python 3.13 and the locked dependencies. On macOS, XGBoost also needs the OpenMP runtime: `brew install libomp`.
 
 ```bash
 git clone https://github.com/aljazfrancic/churn.git && cd churn
