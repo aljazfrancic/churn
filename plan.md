@@ -97,6 +97,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D14 | Repository text stays generic | Assignment PDF is internal: never committed (`.gitignore`), no organisation named. |
 | D15 | Code comments reference decision IDs (e.g. `# D16`) | Links code to the reasoning here. |
 | D36 | `churn/config.py` holds paths, data source, `RANDOM_STATE` and column groups | One place for constants shared by the notebook, modules and tests. |
+| D43 | No `$` in notebook markdown: amounts written as USD (plots keep $) | Notebook renderers read the text between two `$` as LaTeX: GitHub's viewer broke the `AbsChargeDelta` line, JupyterLab 4 every paragraph with two amounts; escaping (`\$`) does not help in JupyterLab. |
 
 ### Data cleaning
 
