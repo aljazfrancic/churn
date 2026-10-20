@@ -32,13 +32,14 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
   - [x] unit tests (D9)
   - [x] GitHub Actions CI (D10)
   - [x] notebook: data overview, dtype issue, cleaning
-- [ ] **3. Exploratory data analysis** (`churn.plots`, D34)
-  - [ ] target distribution (counts + %)
-  - [ ] churn rate per categorical feature
-  - [ ] numeric distributions by churn
-  - [ ] churn vs tenure by contract type
-  - [ ] association heatmap
-  - [ ] short written findings
+- [x] **3. Exploratory data analysis** (`churn.eda`, `churn.plots`, D34, D38)
+  - [x] target distribution (counts + %)
+  - [x] churn rate per categorical feature + Cramér's V / chi² table
+  - [x] numeric distributions by churn + churn-rate heatmap (tenure × monthly charges)
+  - [x] churn vs tenure by contract type
+  - [x] association heatmap
+  - [x] short written findings
+  - [x] unit tests for the statistics helpers (D9)
 - [ ] **4. Feature engineering & preprocessing** (`churn.features`, `churn.pipeline`)
   - [ ] stateless transformer: level collapse + new features (D17, D20, D21)
   - [ ] `ColumnTransformer`: Yeo-Johnson numerics, one-hot categoricals (D22, D23)
@@ -131,7 +132,8 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D31 | Decision threshold maximises **F2** (CV on train, `TunedThresholdClassifierCV`) | Recall weighted 2× precision: a missed churner usually costs more than a wasted incentive; a metrics-vs-threshold plot shows other operating points. |
 | D32 | Preprocessing effects via ablation: cumulative variants, CV PR-AUC for LR, XGBoost and a scale-sensitive model | Shows what cleaning, scaling, new features and class weights actually contribute. |
 | D33 | Evaluation plots: CV boxplots, ROC & PR curves (all models), confusion matrix, metrics vs threshold, calibration curve, cumulative gains, SHAP summary + waterfall, LR odds ratios | Covers model comparison, operating point, probability quality and explanations for marketing. |
-| D34 | EDA plots: target distribution, churn rate per categorical, numeric distributions by churn, churn vs tenure by contract, association heatmap; one seaborn theme, colour-blind-safe palette | Consistent, readable graphics. |
+| D34 | EDA plots: target distribution, churn rate per categorical, numeric distributions by churn, tenure × charges heatmap, churn vs tenure by contract, association heatmap. One theme from a validated colour-blind-safe palette: churn = accent blue, retained = gray (emphasis), magnitudes = one-hue blue ramp, contract types = ordinal ramp; values labelled directly; retina PNGs ~11 in wide on an opaque light surface | Palette validator: churn vs gray CVD ΔE 15.9 (target ≥ 8), contrast ≥ 3:1. Static images have no hover, so labels carry the values; the width matches GitHub's notebook view. |
+| D38 | Feature–churn association: Cramér's V (numeric features binned into quintiles) + chi² p-value; statistics in `churn/eda.py`, plotting in `churn/plots.py` | One 0–1 scale for categorical and numeric features; p-values show which differences could be chance; the notebook stays free of computation code. |
 
 ### Deliverables
 
