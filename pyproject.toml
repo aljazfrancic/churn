@@ -1,0 +1,41 @@
+[project]
+name = "churn"
+version = "0.1.0"
+description = "Telco customer churn prediction: EDA, model comparison, evaluation and explainability"
+authors = [
+    { name = "Aljaž Frančič", email = "aljaz.francic@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.4",
+    "pandas>=3.0.6",
+    "scikit-learn>=1.9.1",
+    "seaborn>=0.13.2",
+    "shap>=0.54.1",
+    # XGBoost (D4): the default Linux wheel pulls a 305 MB NVIDIA NCCL library (multi-GPU
+    # only), so use the 2-6 MB CPU-only build; it has no macOS wheel, but the regular macOS
+    # package is CPU-only anyway.
+    "xgboost>=3.4.1 ; sys_platform == 'darwin'",
+    "xgboost-cpu>=3.4.1 ; sys_platform != 'darwin'",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.23,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "jupyterlab>=4.6.4",
+    "nbmake>=1.5.5",
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]
+
+# D11: lint + format .py files and the notebook
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, bugbear, pyupgrade, numpy-specific rules
+select = ["E", "W", "F", "I", "B", "UP", "NPY"]
