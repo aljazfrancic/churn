@@ -1,9 +1,12 @@
 """Tests for the EDA statistics helpers (D9)."""
 
+import numpy as np
 import pandas as pd
 import pytest
 
+from churn.data import clean
 from churn.eda import (
+    association_with_churn,
     charge_correlations,
     churn_by_bill_change,
     churn_rate_by,
@@ -66,6 +69,16 @@ def test_observed_vs_expected_uses_the_overall_churn_rate():
     assert table["customers"].tolist() == [3, 1]
     assert table["churned"].tolist() == [2, 0]
     assert table["churned_if_unrelated"].tolist() == [1.5, 0.5]
+
+
+def test_association_uses_the_plain_chi2_of_the_formula(raw_customers):
+    df = clean(raw_customers)
+    table = association_with_churn(df)
+    observed = pd.crosstab(df["gender"], df["Churn"]).to_numpy()  # a 2 × 2 table
+    expected = observed.sum(axis=1, keepdims=True) * observed.sum(axis=0) / observed.sum()
+    chi2 = ((observed - expected) ** 2 / expected).sum()  # sum of (O − E)² / E, no Yates (D38)
+    assert table.loc["gender", "chi2"] == pytest.approx(chi2)
+    assert table.loc["gender", "cramers_v"] == pytest.approx(np.sqrt(chi2 / len(df)))
 
 
 def test_bill_change_keeps_increases_and_decreases_apart():

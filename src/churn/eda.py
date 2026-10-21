@@ -65,7 +65,9 @@ def association_with_churn(df: pd.DataFrame) -> pd.DataFrame:
     data = _discretised(df)
     rows = []
     for col in CATEGORICAL_COLUMNS + NUMERIC_COLUMNS:
-        test = chi2_contingency(pd.crosstab(data[col], data[TARGET]))
+        # D38: the plain chi² of the notebook's formula and of Cramér's V; scipy's default would
+        # apply Yates' correction to the yes/no features.
+        test = chi2_contingency(pd.crosstab(data[col], data[TARGET]), correction=False)
         rates = churn_rate_by(data, col)
         rows.append(
             {
