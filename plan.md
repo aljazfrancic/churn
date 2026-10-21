@@ -90,7 +90,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
   - [x] phone and internet combined in the EDA, explaining the phone-service effect (D63)
   - [x] README: key takeaways for sales & marketing (D64)
   - [x] CI: unit tests on Linux, macOS and Windows (D61)
-- [ ] **13. Publish** – GitHub "About" description + topics, make the repository public
+- [x] **13. Publish** – GitHub "About" description + topics, make the repository public
 
 ## Decisions & design
 
