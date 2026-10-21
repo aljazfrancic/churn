@@ -68,7 +68,7 @@ def quality_checks(raw: pd.DataFrame) -> pd.DataFrame:
         "missing values": raw.isna().sum().sum(),
         "duplicate customer IDs": raw[ID_COLUMN].duplicated().sum(),
         "blank TotalCharges": (raw["TotalCharges"].astype(str).str.strip() == "").sum(),
-        "rows identical apart from the ID": len(identical),
+        "rows repeating an earlier row apart from the ID": len(identical),
         "… of them tenure 1, month-to-month, no add-ons": simple_plan.sum(),
     }
     return pd.Series(counts, name="count").to_frame()

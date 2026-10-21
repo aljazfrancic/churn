@@ -58,7 +58,7 @@ def test_quality_checks_count_blanks_and_identical_rows(raw_customers):
     counts = quality_checks(pd.concat([raw_customers, simple, twin]))["count"]
     assert counts["missing values"] == counts["duplicate customer IDs"] == 0
     assert counts["blank TotalCharges"] == 3
-    assert counts["rows identical apart from the ID"] == 1
+    assert counts["rows repeating an earlier row apart from the ID"] == 1
     assert counts["… of them tenure 1, month-to-month, no add-ons"] == 1
 
 
