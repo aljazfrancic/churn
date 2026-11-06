@@ -9,6 +9,12 @@ MODELS_DIR = ROOT_DIR / "models"  # gitignored, filled by churn.serving.save_mod
 
 # D12: Kaggle's public download endpoint works without login; the checksum pins the exact file.
 DATA_URL = "https://www.kaggle.com/api/v1/datasets/download/blastchar/telco-customer-churn"
+# D66: IBM's own copy of the same CSV, at a fixed commit of its archived repository, for when
+# Kaggle refuses (it answers 404 to GitHub's runners). LF line endings; Kaggle's file has CRLF.
+FALLBACK_URL = (
+    "https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/"
+    "1fd6fd70906479be1712e64cfc0ea89f58466629/data/Telco-Customer-Churn.csv"
+)
 CSV_NAME = "WA_Fn-UseC_-Telco-Customer-Churn.csv"
 CSV_SHA256 = "88be4b93fbe0cc83421af1c503794c97c342eca914c1576db7c276e61d61358a"
 

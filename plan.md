@@ -91,6 +91,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
   - [x] README: key takeaways for sales & marketing (D64)
   - [x] CI: unit tests on Linux, macOS and Windows (D61)
 - [x] **13. Publish** – GitHub "About" description + topics, make the repository public
+- [x] **14. Fallback download** – IBM's copy of the CSV when Kaggle refuses (`churn.config`, `churn.data`, D66)
 
 ## Decisions & design
 
@@ -116,6 +117,7 @@ One step = one commit, pushed only after approval. Decision IDs (Dx) refer to th
 | D10 | GitHub Actions: `uv sync --locked` → ruff → pytest (on three OSes, D61) → execute notebook (nbmake, cell timeout 30 min) | Proves the lockfile installs and the notebook runs end-to-end (incl. data download) on a clean machine. Model tuning takes ≈ 7 min on the GitHub runner, more than nbmake's default 5-min cell limit. |
 | D11 | ruff for linting + formatting (incl. notebooks) | One fast tool instead of black + isort + flake8. |
 | D12 | Data not committed; download helper (Kaggle public API → `data/`, gitignored); only the expected CSV is read from the zip, in memory; its SHA-256 is verified on every load | Licence is "© Original Authors" (redistribution unclear); no login needed; the checksum guarantees identical data (CSV, not zip, so re-zipping doesn't matter); reading one member in memory rules out malicious archive paths ("zip slip"). |
+| D66 | Fallback download: IBM's copy of the CSV (`FALLBACK_URL`, its archived repository pinned to a commit) when Kaggle can't be reached or doesn't send the archive; LF line endings turned into Kaggle's CRLF, then the same SHA-256 check | Kaggle answers 404 to GitHub's runners, so the notebook run in CI failed. IBM's file is byte-identical to Kaggle's apart from the line endings, and the checksum still pins the exact data (D12). |
 | D13 | `RANDOM_STATE = 42` everywhere; notebook committed with outputs | Reproducible results; plots visible directly on GitHub. |
 | D14 | British spelling in all repository text (analyse, visualise, licence) | One spelling throughout. |
 | D15 | Code comments reference decision IDs (e.g. `# D16`) | Links code to the reasoning here. |

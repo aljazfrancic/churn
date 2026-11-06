@@ -50,7 +50,7 @@ uv sync                                    # Python 3.13 + dependencies from uv.
 uv run jupyter lab churn_prediction.ipynb  # explore the notebook
 ```
 
-Re-running the whole notebook downloads the data from Kaggle (no login; checked by SHA-256) into `data/` and saves the model to `models/`, both git-ignored. It takes about 5 minutes on 12 CPU cores:
+Re-running the whole notebook downloads the data from Kaggle, or from IBM's copy if Kaggle refuses (no login; checked by SHA-256), into `data/` and saves the model to `models/`, both git-ignored. It takes about 5 minutes on 12 CPU cores:
 
 ```bash
 uv run jupyter nbconvert --to notebook --execute --inplace churn_prediction.ipynb
@@ -104,4 +104,4 @@ pyproject.toml, uv.lock   project definition and locked dependencies (uv)
 
 ## Data & licence
 
-The data is IBM's Telco Customer Churn sample, downloaded from [Kaggle](https://www.kaggle.com/datasets/blastchar/telco-customer-churn) on first use and not redistributed here. The code is licensed under [MIT](LICENSE).
+The data is IBM's Telco Customer Churn sample, downloaded from [Kaggle](https://www.kaggle.com/datasets/blastchar/telco-customer-churn) on first use (or from [IBM's copy](https://github.com/IBM/telco-customer-churn-on-icp4d) if Kaggle refuses) and not redistributed here. The code is licensed under [MIT](LICENSE).

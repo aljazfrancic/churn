@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -9,7 +10,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from churn.config import ADDON_COLUMNS, CSV_NAME, CSV_SHA256, DATA_DIR, DATA_URL, ID_COLUMN, TARGET
+from churn.config import (
+    ADDON_COLUMNS,
+    CSV_NAME,
+    CSV_SHA256,
+    DATA_DIR,
+    DATA_URL,
+    FALLBACK_URL,
+    ID_COLUMN,
+    TARGET,
+)
 
 
 def verify_sha256(data: bytes, sha256: str) -> None:
@@ -19,20 +29,35 @@ def verify_sha256(data: bytes, sha256: str) -> None:
         raise ValueError(f"Unexpected file: SHA-256 {digest}, expected {sha256}.")
 
 
-def download_data(data_dir: Path = DATA_DIR, url: str = DATA_URL, sha256: str = CSV_SHA256) -> Path:
+def _fetch(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=60) as response:
+        return response.read()
+
+
+def download_data(
+    data_dir: Path = DATA_DIR,
+    url: str = DATA_URL,
+    sha256: str = CSV_SHA256,
+    fallback_url: str | None = FALLBACK_URL,
+) -> Path:
     """Return the path of the verified dataset CSV, downloading it on first use (D12).
 
     Only the expected CSV is read from the zip, in memory, so the archive can never write files
-    elsewhere. Nothing is saved unless the checksum matches; an existing file is re-verified.
+    elsewhere. If Kaggle can't be reached or doesn't send that archive, the plain CSV comes from
+    `fallback_url`, its line endings turned into Kaggle's CRLF (D66). Nothing is saved unless the
+    checksum matches; an existing file is re-verified.
     """
     csv_path = data_dir / CSV_NAME
     if csv_path.exists():
         verify_sha256(csv_path.read_bytes(), sha256)
         return csv_path
 
-    with urllib.request.urlopen(url, timeout=60) as response:
-        archive = zipfile.ZipFile(io.BytesIO(response.read()))
-    data = archive.read(CSV_NAME)
+    try:
+        data = zipfile.ZipFile(io.BytesIO(_fetch(url))).read(CSV_NAME)
+    except (urllib.error.URLError, TimeoutError, zipfile.BadZipFile, KeyError):
+        if fallback_url is None:
+            raise
+        data = _fetch(fallback_url).replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
     verify_sha256(data, sha256)
     data_dir.mkdir(parents=True, exist_ok=True)
     csv_path.write_bytes(data)

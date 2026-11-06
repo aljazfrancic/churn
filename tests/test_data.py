@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import urllib.error
 import zipfile
 
 import pandas as pd
@@ -105,3 +106,41 @@ def test_other_archive_members_are_never_extracted(tmp_path):
     download_data(tmp_path / "data", url=path.as_uri(), sha256=hashlib.sha256(b"ok\n").hexdigest())
 
     assert not (tmp_path / "evil.txt").exists()
+
+
+@pytest.mark.parametrize("kaggle", ["unreachable", "not a zip"])
+def test_download_falls_back_to_the_plain_csv(tmp_path, kaggle):
+    # Kaggle refused or sent a page instead of the archive; IBM's LF endings become CRLF (D66).
+    primary = tmp_path / "kaggle.zip"
+    if kaggle == "not a zip":
+        primary.write_bytes(b"<html>Sign in</html>")
+    mirror = tmp_path / "mirror.csv"
+    mirror.write_bytes(b"a,b\n1,2\n")
+    expected = b"a,b\r\n1,2\r\n"
+
+    path = download_data(
+        tmp_path / "data",
+        url=primary.as_uri(),
+        sha256=hashlib.sha256(expected).hexdigest(),
+        fallback_url=mirror.as_uri(),
+    )
+
+    assert path.read_bytes() == expected
+
+
+def test_fallback_is_verified_too(tmp_path):
+    mirror = tmp_path / "mirror.csv"
+    mirror.write_bytes(b"tampered\n")
+    with pytest.raises(ValueError, match="SHA-256"):
+        download_data(
+            tmp_path / "data",
+            url=(tmp_path / "kaggle.zip").as_uri(),
+            sha256="0" * 64,
+            fallback_url=mirror.as_uri(),
+        )
+    assert not (tmp_path / "data" / CSV_NAME).exists()
+
+
+def test_without_fallback_the_download_error_is_raised(tmp_path):
+    with pytest.raises(urllib.error.URLError):
+        download_data(tmp_path / "data", url=(tmp_path / "kaggle.zip").as_uri(), fallback_url=None)
